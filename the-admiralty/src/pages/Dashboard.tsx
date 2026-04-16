@@ -2,12 +2,14 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import ManeuverFootprint from '../components/charts/ManeuverFootprint';
 import TelemetryMap from '../components/charts/TelemetryMap';
 import Maneuvers from './Maneuvers';
+import StartAnalysis from './StartAnalysis'; // IL NUOVO COMPONENTE
 
 export default function Dashboard() {
   const [telemetryData, setTelemetryData] = useState<any>(null);
   const [isUploading, setIsUploading] = useState(false);
   
-  const [currentView, setCurrentView] = useState<'overview' | 'maneuvers' | 'lab'>('overview');
+  // Aggiunto 'start' come possibile vista
+  const [currentView, setCurrentView] = useState<'overview' | 'maneuvers' | 'lab' | 'start'>('overview');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   // --- STATI TEMPORALI RELATIVI ---
@@ -21,7 +23,7 @@ export default function Dashboard() {
   const [absStartTime, setAbsStartTime] = useState<string>(''); 
   const [absEndTime, setAbsEndTime] = useState<string>('');
 
-  // --- DEBOUNCE STATE (Protegge dai lag continui durante la digitazione) ---
+  // --- DEBOUNCE STATE ---
   const [debouncedTime, setDebouncedTime] = useState({ startSecs: 0, endSecs: 0 });
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
 
@@ -47,7 +49,7 @@ export default function Dashboard() {
     }
   }, [telemetryData]);
 
-  // Sincronizzazione Temporale (Gestisce gli errori di battitura)
+  // Sincronizzazione Temporale
   useEffect(() => {
     if (!telemetryData) return;
 
@@ -92,7 +94,6 @@ export default function Dashboard() {
       } catch (e) {}
     }
 
-    // Debounce: Aggiorna i dati solo se smetti di digitare per mezzo secondo
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     debounceTimer.current = setTimeout(() => {
       setDebouncedTime({ startSecs: targetStartSecs, endSecs: targetEndSecs });
@@ -101,8 +102,7 @@ export default function Dashboard() {
   }, [startMin, startSec, endMin, endSec, absStartTime, absEndTime, useAbsoluteTime, telemetryData]);
 
 
-  // --- MOTORE DI TAGLIO CENTRALE ---
-  // Calcola una volta sola i dati filtrati e li distribuisce a tutta l'app
+  // MOTORE DI TAGLIO
   const segmentMetrics = useMemo(() => {
     if (!telemetryData || !telemetryData.session_info.start_time) return null;
 
@@ -154,7 +154,6 @@ export default function Dashboard() {
     };
   }, [telemetryData, debouncedTime]);
 
-  // Memoizzazione per non ricaricare i grafici se non serve
   const MapMemoized = useMemo(() => {
     if (!telemetryData) return null;
     return <TelemetryMap trackData={segmentMetrics ? segmentMetrics.filteredTrack : telemetryData.track_data} />;
@@ -180,7 +179,8 @@ export default function Dashboard() {
     formData.append("file", file);
 
     try {
-      const response = await fetch("http://localhost:8000/api/analyze", { method: "POST", body: formData });
+      const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
+      const response = await fetch(`${apiUrl}/api/analyze`, { method: "POST", body: formData });
       if (!response.ok) throw new Error("Errore durante l'analisi del file");
       const data = await response.json();
       setTelemetryData(data);
@@ -233,72 +233,74 @@ export default function Dashboard() {
             <button onClick={() => { setCurrentView('overview'); setIsMenuOpen(false); }} className={`text-left px-6 py-4 text-xs font-bold uppercase tracking-widest transition-colors ${currentView === 'overview' ? 'bg-gray-50 text-gold border-l-4 border-gold' : 'text-navy-900 hover:bg-gray-50 border-l-4 border-transparent'}`}>Panoramica Dashboard</button>
             <button onClick={() => { setCurrentView('maneuvers'); setIsMenuOpen(false); }} className={`text-left px-6 py-4 text-xs font-bold uppercase tracking-widest transition-colors ${currentView === 'maneuvers' ? 'bg-gray-50 text-gold border-l-4 border-gold' : 'text-navy-900 hover:bg-gray-50 border-l-4 border-transparent'}`}>Registro Manovre</button>
             <button onClick={() => { setCurrentView('lab'); setIsMenuOpen(false); }} className={`text-left px-6 py-4 text-xs font-bold uppercase tracking-widest transition-colors ${currentView === 'lab' ? 'bg-gray-50 text-gold border-l-4 border-gold' : 'text-navy-900 hover:bg-gray-50 border-l-4 border-transparent'}`}>Laboratorio Traiettorie</button>
+            {/* NUOVA VOCE MENU */}
+            <button onClick={() => { setCurrentView('start'); setIsMenuOpen(false); }} className={`text-left px-6 py-4 text-xs font-bold uppercase tracking-widest transition-colors ${currentView === 'start' ? 'bg-gray-50 text-gold border-l-4 border-gold' : 'text-navy-900 hover:bg-gray-50 border-l-4 border-transparent'}`}>Analisi Start</button>
           </div>
         )}
       </header>
 
       <main className="flex-1 w-full bg-paper flex flex-col">
         
-        {/* --- GLOBAL FILTER BAR (Visibile in tutte le pagine) --- */}
-        <div className="bg-white border-b border-gray-200 shadow-sm z-[90] relative px-6 lg:px-12 py-4">
-          <div className="max-w-[1600px] mx-auto flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4">
-            <div>
-              <h3 className="text-sm font-bold uppercase tracking-[0.15em] text-navy-900">Filtro Temporale Globale</h3>
-              <p className="text-[10px] text-gray-500 mt-0.5">La selezione viene applicata istantaneamente a Mappe, Tabelle e Grafici.</p>
-            </div>
-            
-            <div className="flex flex-col gap-2">
-              <div className="flex justify-end">
-                <div className="inline-flex bg-gray-100 rounded p-1">
-                  <button onClick={() => setUseAbsoluteTime(false)} className={`px-3 py-1 text-[10px] font-bold uppercase tracking-widest rounded ${!useAbsoluteTime ? 'bg-white shadow-sm text-navy-900' : 'text-gray-400'}`}>Timer Relativo</button>
-                  <button onClick={() => setUseAbsoluteTime(true)} className={`px-3 py-1 text-[10px] font-bold uppercase tracking-widest rounded ${useAbsoluteTime ? 'bg-white shadow-sm text-navy-900' : 'text-gray-400'}`}>Orologio Solare</button>
-                </div>
+        {/* LA BARRA FILTRI SCOMPARE NELLA VISTA START (Lì c'è un time-picker dedicato) */}
+        {currentView !== 'start' && (
+          <div className="bg-white border-b border-gray-200 shadow-sm z-[90] relative px-6 lg:px-12 py-4">
+            <div className="max-w-[1600px] mx-auto flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4">
+              <div>
+                <h3 className="text-sm font-bold uppercase tracking-[0.15em] text-navy-900">Filtro Temporale Globale</h3>
+                <p className="text-[10px] text-gray-500 mt-0.5">La selezione viene applicata istantaneamente a Mappe, Tabelle e Grafici.</p>
               </div>
-
-              <div className="flex flex-wrap items-center gap-4">
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Da:</span>
-                  {!useAbsoluteTime ? (
-                    <div className="flex items-center bg-gray-50 border border-gray-200 rounded focus-within:border-gold overflow-hidden">
-                      <input type="number" min="0" max={Number(endMin)} placeholder="Min" value={startMin} onChange={(e) => setStartMin(e.target.value === '' ? '' : Number(e.target.value))} className="w-12 py-1 px-1 bg-transparent text-xs font-bold text-navy-900 outline-none text-center" />
-                      <span className="text-gray-300 font-bold">:</span>
-                      <input type="number" min="0" max="59" placeholder="Sec" value={startSec} onChange={(e) => setStartSec(e.target.value === '' ? '' : Number(e.target.value))} className="w-12 py-1 px-1 bg-transparent text-xs font-bold text-navy-900 outline-none text-center" />
-                    </div>
-                  ) : (
-                    <div className="flex items-center bg-gray-50 border border-gray-200 rounded focus-within:border-gold overflow-hidden">
-                       <input type="time" step="1" value={absStartTime} onChange={(e) => setAbsStartTime(e.target.value)} className="py-1 px-2 bg-transparent text-xs font-bold text-navy-900 outline-none" />
-                    </div>
-                  )}
+              
+              <div className="flex flex-col gap-2">
+                <div className="flex justify-end">
+                  <div className="inline-flex bg-gray-100 rounded p-1">
+                    <button onClick={() => setUseAbsoluteTime(false)} className={`px-3 py-1 text-[10px] font-bold uppercase tracking-widest rounded ${!useAbsoluteTime ? 'bg-white shadow-sm text-navy-900' : 'text-gray-400'}`}>Timer Relativo</button>
+                    <button onClick={() => setUseAbsoluteTime(true)} className={`px-3 py-1 text-[10px] font-bold uppercase tracking-widest rounded ${useAbsoluteTime ? 'bg-white shadow-sm text-navy-900' : 'text-gray-400'}`}>Orologio Solare</button>
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">A:</span>
-                  {!useAbsoluteTime ? (
-                    <div className="flex items-center bg-gray-50 border border-gray-200 rounded focus-within:border-gold overflow-hidden">
-                      <input type="number" min={Number(startMin)} max={maxSessionMinutes} placeholder="Min" value={endMin} onChange={(e) => setEndMin(e.target.value === '' ? '' : Number(e.target.value))} className="w-12 py-1 px-1 bg-transparent text-xs font-bold text-navy-900 outline-none text-center" />
-                      <span className="text-gray-300 font-bold">:</span>
-                      <input type="number" min="0" max="59" placeholder="Sec" value={endSec} onChange={(e) => setEndSec(e.target.value === '' ? '' : Number(e.target.value))} className="w-12 py-1 px-1 bg-transparent text-xs font-bold text-navy-900 outline-none text-center" />
-                    </div>
-                  ) : (
-                    <div className="flex items-center bg-gray-50 border border-gray-200 rounded focus-within:border-gold overflow-hidden">
-                       <input type="time" step="1" value={absEndTime} onChange={(e) => setAbsEndTime(e.target.value)} className="py-1 px-2 bg-transparent text-xs font-bold text-navy-900 outline-none" />
-                    </div>
-                  )}
+                <div className="flex flex-wrap items-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Da:</span>
+                    {!useAbsoluteTime ? (
+                      <div className="flex items-center bg-gray-50 border border-gray-200 rounded focus-within:border-gold overflow-hidden">
+                        <input type="number" min="0" max={Number(endMin)} placeholder="Min" value={startMin} onChange={(e) => setStartMin(e.target.value === '' ? '' : Number(e.target.value))} className="w-12 py-1 px-1 bg-transparent text-xs font-bold text-navy-900 outline-none text-center" />
+                        <span className="text-gray-300 font-bold">:</span>
+                        <input type="number" min="0" max="59" placeholder="Sec" value={startSec} onChange={(e) => setStartSec(e.target.value === '' ? '' : Number(e.target.value))} className="w-12 py-1 px-1 bg-transparent text-xs font-bold text-navy-900 outline-none text-center" />
+                      </div>
+                    ) : (
+                      <div className="flex items-center bg-gray-50 border border-gray-200 rounded focus-within:border-gold overflow-hidden">
+                         <input type="time" step="1" value={absStartTime} onChange={(e) => setAbsStartTime(e.target.value)} className="py-1 px-2 bg-transparent text-xs font-bold text-navy-900 outline-none" />
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">A:</span>
+                    {!useAbsoluteTime ? (
+                      <div className="flex items-center bg-gray-50 border border-gray-200 rounded focus-within:border-gold overflow-hidden">
+                        <input type="number" min={Number(startMin)} max={maxSessionMinutes} placeholder="Min" value={endMin} onChange={(e) => setEndMin(e.target.value === '' ? '' : Number(e.target.value))} className="w-12 py-1 px-1 bg-transparent text-xs font-bold text-navy-900 outline-none text-center" />
+                        <span className="text-gray-300 font-bold">:</span>
+                        <input type="number" min="0" max="59" placeholder="Sec" value={endSec} onChange={(e) => setEndSec(e.target.value === '' ? '' : Number(e.target.value))} className="w-12 py-1 px-1 bg-transparent text-xs font-bold text-navy-900 outline-none text-center" />
+                      </div>
+                    ) : (
+                      <div className="flex items-center bg-gray-50 border border-gray-200 rounded focus-within:border-gold overflow-hidden">
+                         <input type="time" step="1" value={absEndTime} onChange={(e) => setAbsEndTime(e.target.value)} className="py-1 px-2 bg-transparent text-xs font-bold text-navy-900 outline-none" />
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* --- SCHERMATE DELL'APP --- */}
         <div className="flex-1 w-full">
           
-          {/* VISTA 1: MANOVRE (Riceve solo le manovre filtrate!) */}
           {currentView === 'maneuvers' && segmentMetrics && (
             <Maneuvers maneuvers={segmentMetrics.filteredManeuvers} />
           )}
 
-          {/* VISTA 2: LABORATORIO (Riceve rotta e manovre filtrate!) */}
           {currentView === 'lab' && (
             <div className="p-6 lg:p-8 max-w-[1600px] mx-auto w-full h-[calc(100vh-160px)]">
               <div className="bg-surface shadow-md h-full flex flex-col border border-gray-200 overflow-hidden rounded-md">
@@ -315,7 +317,11 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* VISTA 3: OVERVIEW */}
+          {/* LA NUOVA VISTA START (Riceve i dati High-Res 1Hz!) */}
+          {currentView === 'start' && telemetryData.high_res_track && (
+             <StartAnalysis trackData={telemetryData.high_res_track} sessionStart={telemetryData.session_info.start_time} />
+          )}
+
           {currentView === 'overview' && (
             <div className="p-8 lg:p-12 max-w-7xl mx-auto w-full">
               
@@ -376,7 +382,6 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              {/* CARD METRICHE VELICHE (Sensibili al Filtro Globale) */}
               {segmentMetrics && (
                 <div className="mt-8">
                   <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-gray-400 mb-3 ml-1">Metriche Segmento Selezionato</p>
