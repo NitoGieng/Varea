@@ -4,10 +4,8 @@ import ReactPlot from 'react-plotly.js';
 
 const Plot = (ReactPlot as any).default || ReactPlot;
 
-// Diciamo a React che questo componente si aspetta di ricevere una lista di dati
 export default function TelemetryMap({ trackData = [] }: { trackData: any[] }) {
   
-  // Se i dati non sono ancora arrivati o sono vuoti, non disegniamo nulla per evitare errori
   if (!trackData || trackData.length === 0) {
     return <div className="absolute inset-0 flex items-center justify-center text-gray-400 text-sm italic">Nessun dato GPS da mostrare</div>;
   }
@@ -16,6 +14,10 @@ export default function TelemetryMap({ trackData = [] }: { trackData: any[] }) {
   const lons = trackData.map((p: any) => p.lon);
   const speeds = trackData.map((p: any) => p.sog_knots);
   
+  // Calcoliamo il centro esatto della mappa invece di prendere solo il primo punto
+  const avgLat = lats.reduce((a: number, b: number) => a + b, 0) / lats.length;
+  const avgLon = lons.reduce((a: number, b: number) => a + b, 0) / lons.length;
+
   const hoverTexts = trackData.map((p: any) => 
     `Speed: ${p.sog_knots.toFixed(1)} kts<br>TWA: ${p.twa.toFixed(0)}°<br>Sail: ${p.andatura}`
   );
@@ -25,7 +27,7 @@ export default function TelemetryMap({ trackData = [] }: { trackData: any[] }) {
       <Plot
         data={[
           {
-            type: 'scattermapbox',
+            type: 'scattermap', // AGGIORNATO DA scattermapbox a scattermap come richiesto dal nuovo Plotly
             lat: lats,
             lon: lons,
             mode: 'markers+lines',
@@ -48,20 +50,23 @@ export default function TelemetryMap({ trackData = [] }: { trackData: any[] }) {
           }
         ]}
         layout={{
-          dragmode: 'pan', // <-- 1. Clicca e trascina per spostarti sulla mappa come su Google Maps
+          dragmode: 'pan',
           margin: { l: 0, r: 0, t: 0, b: 0 },
-          mapbox: {
-            style: 'open-street-map',
-            center: { lat: lats[0] || 0, lon: lons[0] || 0 },
-            zoom: 12
+          // AGGIORNATO DA mapbox a map come richiesto dal nuovo Plotly
+          map: {
+            style: 'carto-positron', // <--- LA MAGIA È QUI: Stile pulito, niente errori server!
+            center: { lat: avgLat, lon: avgLon }, // Centro calcolato sulla media
+            zoom: 13,
+            layers: [], // Previene il rendering di immagini corrotte
+            uirevision: 'true' // Impedisce alla mappa di resettare lo zoom quando cambiano i dati
           },
           autosize: true,
           paper_bgcolor: 'transparent',
           plot_bgcolor: 'transparent',
         }}
         config={{ 
-          scrollZoom: true, // <-- 2. Sblocca la rotellina del mouse o il pinch-to-zoom sul trackpad!
-          displayModeBar: false // (Opzionale) Nasconde la barra degli strumenti in alto a destra per un look più pulito
+          scrollZoom: true,
+          displayModeBar: false
         }}
         useResizeHandler={true}
         style={{ width: '100%', height: '100%' }}

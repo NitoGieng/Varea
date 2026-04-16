@@ -4,95 +4,127 @@ from typing import List, Dict, Any
 
 class ManeuverAnalyzer:
     """
-    Analizza la cinematica della sessione per taggare le andature 
-    e calcolare le metriche di efficienza delle manovre (Delta V).
+    Analizza la cinematica per taggare le andature e calcolare le metriche 
+    di efficienza (Delta V, TTR Dinamico al 50% e Durata Totale).
     """
     
-    def __init__(self, delta_t_in: int = 3, delta_t_out: int = 5, min_cog_turn: float = 60.0):
-        self.dt_in = delta_t_in
-        self.dt_out = delta_t_out
-        self.min_cog_turn = min_cog_turn
+    def __init__(self, min_leg_time: int = 15):
+        self.min_leg_time = min_leg_time 
 
     @staticmethod
-    def angular_diff(a: pd.Series, b: float) -> pd.Series:
+    def angular_diff(a, b):
         return (a - b + 180) % 360 - 180
 
-    def tag_points_of_sail(self, df: pd.DataFrame, twd: float) -> pd.DataFrame:
-        twa_abs = self.angular_diff(df['cog_deg'], twd).abs()
-        
+    def tag_points_of_sail(self, df: pd.DataFrame, twd_series: pd.Series) -> pd.DataFrame:
+        twa_abs = self.angular_diff(df['cog_deg'], twd_series).abs()
         conditions = [
-            (twa_abs <= 70),                     # Bolina
-            (twa_abs > 70) & (twa_abs <= 120),   # Traverso
-            (twa_abs > 120)                      # Lasco/Poppa
+            (twa_abs <= 70),                     
+            (twa_abs > 70) & (twa_abs <= 120),   
+            (twa_abs > 120)                      
         ]
         choices = ['Bolina', 'Traverso', 'Lasco/Poppa']
-        
         df['andatura'] = np.select(conditions, choices, default='Sconosciuta')
+        df['twa'] = twa_abs
         return df
 
-    def detect_maneuvers(self, df: pd.DataFrame, twd: float) -> List[Dict[str, Any]]:
+    def detect_maneuvers(self, df: pd.DataFrame, twd_series: pd.Series) -> List[Dict[str, Any]]:
         maneuvers = []
-        
-        rad_cog = np.radians(df['cog_deg'])
-        sin_diff = np.sin(rad_cog).diff(periods=8)
-        cos_diff = np.cos(rad_cog).diff(periods=8)
-        delta_cog = np.degrees(np.arctan2(sin_diff, cos_diff)).abs()
-        
-        turn_mask = (delta_cog > self.min_cog_turn) & (df['sog_knots'] > 3.0)
-        turn_starts = df.index[turn_mask & ~turn_mask.shift(1).fillna(False)]
-        
-        last_maneuver_pos = -9999
-        cooldown_seconds = 20
-        
-        # --- NOVITÀ: Calcolo Distanza Progressiva ---
-        # Dato che la velocità è in nodi (Miglia Nautiche all'ora) e il GPS
-        # registra circa 1 punto al secondo, dividiamo SOG per 3600.
+        if len(df) < 30:
+            return maneuvers
+
         df['cum_dist_nm'] = (df['sog_knots'] / 3600).cumsum()
         
-        # Il punto di partenza per calcolare la distanza della primissima manovra
-        last_maneuver_dist = float(df['cum_dist_nm'].iloc[0]) if len(df) > 0 else 0.0
+        df['twa_signed'] = self.angular_diff(df['cog_deg'], twd_series)
+        df['mure'] = np.where(df['twa_signed'] >= 0, 1, -1)
+        df['cambio_mure'] = df['mure'].diff().fillna(0) != 0
+
+        change_indices = df.index[df['cambio_mure']].tolist()
         
-        for start_idx in turn_starts:
-            start_pos = df.index.get_loc(start_idx)
+        last_man_idx = 0
+        last_man_dist = float(df['cum_dist_nm'].iloc[0])
+
+        for idx_timestamp in change_indices:
+            i = df.index.get_loc(idx_timestamp)
             
-            if start_pos < last_maneuver_pos + cooldown_seconds:
+            if i - last_man_idx < self.min_leg_time:
                 continue
                 
-            last_maneuver_pos = start_pos
+            twa_momentaneo = abs(df['twa_signed'].iloc[i-1])
+            m_type = "Virata" if twa_momentaneo < 90 else "Strambata"
             
-            end_pos = min(start_pos + 15, len(df) - 1)
-            window_df = df.iloc[start_pos:end_pos]
+            # 1. CERCHIAMO IL VERO MINIMO
+            search_start = max(0, i - 2)
+            search_end = min(len(df)-1, i + 25)
+            window = df.iloc[search_start:search_end]
             
-            min_sog_idx = window_df['sog_knots'].idxmin()
-            min_sog_pos = df.index.get_loc(min_sog_idx)
+            # ATTENZIONE: Cast esplicito a int puro per evitare problemi JSON
+            min_speed_idx = int(window['sog_knots'].argmin() + search_start)
+            sog_min = float(df['sog_knots'].iloc[min_speed_idx])
+
+            # 2. VELOCITÀ DI INGRESSO (Target Pulito)
+            target_start = max(0, i - 10)
+            target_end = max(0, i - 4)
+            window_in = df['sog_knots'].iloc[target_start:target_end]
+            sog_in = float(window_in.median()) if len(window_in) > 0 else sog_min
             
-            if min_sog_pos >= self.dt_in and (min_sog_pos + self.dt_out) < len(df):
-                idx_in = df.index[min_sog_pos - self.dt_in]
-                idx_out = df.index[min_sog_pos + self.dt_out]
+            # 3. VELOCITÀ DI USCITA (12s dopo il minimo)
+            out_idx = min(len(df)-1, min_speed_idx + 12)
+            sog_out = float(df['sog_knots'].iloc[out_idx])
+
+            # 4. CALCOLO TTR, DURATA E VELOCITÀ TARGET
+            sog_lost = float(sog_in - sog_min)
+            recovery_time_sec = None
+            total_duration_sec = None
+            target_speed_threshold = sog_in 
+            
+            # Punto di inizio manovra: 5 secondi prima del cambio mura (inizio perdita velocità)
+            entry_idx = int(max(0, i - 5))
+            descent_time = int(min_speed_idx - entry_idx) # Tempo impiegato per toccare il fondo
+            
+            if sog_lost <= 2.0 or sog_in < 5.0:
+                # Manovra talmente pulita (o barca ferma) che il recupero è nullo
+                recovery_time_sec = 0
+                total_duration_sec = descent_time
+            else:
+                target_speed_threshold = sog_min + (sog_lost * 0.50)
+                max_search_idx = min(len(df) - 1, min_speed_idx + 90)
                 
-                sog_in = float(df.at[idx_in, 'sog_knots'])
-                sog_min = float(df.at[min_sog_idx, 'sog_knots'])
-                sog_out = float(df.at[idx_out, 'sog_knots'])
+                post_sog_array = df['sog_knots'].iloc[min_speed_idx : max_search_idx].values
+                max_reached = float(post_sog_array.max()) if len(post_sog_array) > 0 else 0.0
                 
-                cog_in = float(df.at[idx_in, 'cog_deg'])
-                cog_out = float(df.at[idx_out, 'cog_deg'])
+                recovery_points = np.where(post_sog_array >= target_speed_threshold)[0]
                 
-                is_tack = abs(self.angular_diff(pd.Series([(cog_in + cog_out)/2]), twd).iloc[0]) < 90
-                m_type = "Virata" if is_tack else "Strambata"
-                
-                # --- NOVITÀ: Calcolo Distanza del Leg ---
-                current_dist = float(df.at[min_sog_idx, 'cum_dist_nm'])
-                leg_distance = current_dist - last_maneuver_dist
-                last_maneuver_dist = current_dist  # Aggiorna il "checkpoint" per la prossima manovra
-                
-                maneuvers.append({
-                    'timestamp': min_sog_idx.isoformat(),
-                    'type': m_type,
-                    'sog_in': round(sog_in, 2),
-                    'sog_min': round(sog_min, 2),
-                    'sog_out': round(sog_out, 2),
-                    'delta_v': round(sog_out - sog_in, 2),
-                    'leg_distance_nm': round(leg_distance, 3) # <-- Ora viene spedito al Frontend!
-                })
-                
+                if len(recovery_points) > 0:
+                    recovery_time_sec = int(recovery_points[0])
+                    # CAST esplicito a int puro: Durata totale = (Discesa) + (Risalita)
+                    total_duration_sec = int(descent_time + recovery_time_sec)
+                else:
+                    recovery_time_sec = f"Max:{max_reached:.1f}/Thr:{target_speed_threshold:.1f}"
+                    total_duration_sec = "Fail"
+            # ---------------------------------------------
+
+            current_dist = float(df['cum_dist_nm'].iloc[i])
+            leg_distance = current_dist - last_man_dist
+            last_man_dist = current_dist
+            
+            timestamp_str = idx_timestamp.isoformat() if hasattr(idx_timestamp, 'isoformat') else str(idx_timestamp)
+            if 'T' not in timestamp_str:
+                timestamp_str = timestamp_str.replace(' ', 'T')
+            
+            maneuvers.append({
+                'maneuverId': f"#{len(maneuvers)+1}",
+                'timestamp': timestamp_str,
+                'type': m_type,
+                'twd_at_maneuver': round(float(twd_series.iloc[i]), 1),
+                'sog_in': round(sog_in, 2),
+                'sog_min': round(sog_min, 2),
+                'sog_out': round(sog_out, 2),
+                'delta_v': round(sog_out - sog_in, 2),
+                'leg_distance_nm': round(leg_distance, 3),
+                'recovery_time_s': recovery_time_sec,
+                'duration_s': total_duration_sec,
+                'ttr_target_sog': round(target_speed_threshold, 1) 
+            })
+            last_man_idx = i
+
         return maneuvers

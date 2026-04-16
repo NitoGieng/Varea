@@ -3,19 +3,51 @@ from fastapi.middleware.cors import CORSMiddleware
 from pathlib import Path
 import tempfile
 import os
+import requests # <-- Necessario per le chiamate API
+import json
 from dotenv import load_dotenv
 
 load_dotenv()
 import pandas as pd
-import numpy as np # <-- Aggiunto per i calcoli geometrici
+import numpy as np 
 
-# Import corretti (che puntano alla tua cartella src)
+# Import dalla tua cartella src
 from src.ingestion.fit_parser import TelemetryIngestor
 from src.environment.stormglass_api import StormglassClient
 from src.heuristics.wind_vectors import WindEstimator
 from src.heuristics.maneuvers import ManeuverAnalyzer
 
 app = FastAPI(title="The Admiralty API")
+
+CACHE_FILE = "weather_cache.json"
+
+def get_cached_weather(session_id):
+    """Cerca il meteo nella memoria locale usando l'orario della sessione."""
+    session_id_str = str(session_id)
+    if os.path.exists(CACHE_FILE):
+        try:
+            with open(CACHE_FILE, 'r') as f:
+                cache = json.load(f)
+                return cache.get(session_id_str)
+        except Exception:
+            return None
+    return None
+
+def save_cached_weather(session_id, api_data):
+    """Salva la risposta dell'API nel file di memoria locale."""
+    session_id_str = str(session_id)
+    cache = {}
+    if os.path.exists(CACHE_FILE):
+        try:
+            with open(CACHE_FILE, 'r') as f:
+                cache = json.load(f)
+        except Exception:
+            pass
+            
+    cache[session_id_str] = api_data
+    
+    with open(CACHE_FILE, 'w') as f:
+        json.dump(cache, f, indent=4)
 
 # Setup per far comunicare React col server locale
 app.add_middleware(
@@ -45,91 +77,142 @@ async def analyze_fit_file(file: UploadFile = File(...)):
         ingestor = TelemetryIngestor(temp_file_path)
         df = ingestor.process()
         
-        # SALVATAGGIO ROTTA: Se il Garmin non ha la bussola (cog_deg è tutto NaN)
-        # la calcoliamo matematicamente dalle coordinate GPS!
+        # SALVATAGGIO ROTTA
         if df['cog_deg'].isna().all():
             print("⚠️ Bussola non rilevata nel file FIT. Calcolo la rotta dal GPS...")
             d_lon = df['lon'].diff()
             d_lat = df['lat'].diff()
-            # Formula nautica per il Course Over Ground (Bearing)
             df['cog_deg'] = np.degrees(np.arctan2(d_lon * np.cos(np.radians(df['lat'])), d_lat)) % 360
-            
-            # Riempiamo il primo punto (che risulta NaN) col secondo
             df['cog_deg'] = df['cog_deg'].bfill()
         
-        # Rimuoviamo i record dove il GPS ha perso il segnale per non sfalsare le medie
+        # Pulizia dati
         df = df.dropna(subset=['lat', 'lon', 'sog_knots'])
         
         sog_max = float(df['sog_knots'].max())
         sog_avg = float(df['sog_knots'].mean())
         distance_nm = float((df['sog_knots'] / 3600).sum())
 
-        # --- FASE 2: API METEO (VERSIONE SICURA) ---
-        print("2/4 Recupero Meteo da Stormglass...")
-        api_twd = None 
-        
-        # Carica le variabili dal file .env se esiste
-        from dotenv import load_dotenv
-        load_dotenv()
-        
-        # Recupera la chiave dalle variabili di sistema
-        api_key = os.getenv("STORMGLASS_API_KEY")
-        
-        if api_key:
-            import requests
-            try:
-                # Usiamo la logica "cruda" che abbiamo testato con successo
-                start_ts = int(pd.to_datetime(df.index[0]).timestamp())
-                test_lat = float(df['lat'].iloc[0])
-                test_lon = float(df['lon'].iloc[0])
-                
-                url = f"https://api.stormglass.io/v2/weather/point?lat={test_lat}&lng={test_lon}&params=windDirection&start={start_ts}&end={start_ts}"
-                headers = {"Authorization": api_key}
-                
-                response = requests.get(url, headers=headers)
-                if response.status_code == 200:
-                    api_twd = response.json()['hours'][0]['windDirection']['sg']
-                    print(f" ✅ VENTO SCARICATO CON SUCCESSO: {api_twd}°")
-                else:
-                    print(f" ❌ ERRORE API ({response.status_code}): {response.text}")
-            except Exception as e:
-                print(f" ⚠️ ERRORE DURANTE LA CHIAMATA: {e}")
-        else:
-            print("⚠️ Nessuna API KEY trovata nelle variabili d'ambiente. Salto il meteo reale.")
+        # Estraiamo le coordinate e gli orari per API e Cache
+        lat_start = df['lat'].iloc[0]
+        lon_start = df['lon'].iloc[0]
+        start_ts = int(pd.to_datetime(df.index[0]).timestamp())
+        end_ts = int(pd.to_datetime(df.index[-1]).timestamp())
+        STORMGLASS_API_KEY = os.getenv("STORMGLASS_API_KEY")
 
-        # --- FASE 3: CALCOLO VENTO ---
-        print("3/4 Calcolo TWD Finale...")
         wind_estimator = WindEstimator()
+        analyzer = ManeuverAnalyzer()
+
+        # Calcoliamo subito un "Vento Globale" di emergenza / fallback
+        global_computed_twd = wind_estimator.estimate_twd(df)
+        if global_computed_twd is None:
+            global_computed_twd = 0.0
+
+        # --- FASE 2: RICHIESTA DATI METEO (CON CACHE) ---
+        print("2/4 Controllo Dati Meteo...")
+        api_twd_list = None
         
-        # Passiamo il vento di Stormglass all'algoritmo. 
-        # Se Stormglass fallisce (api_twd=None), l'algoritmo fa tutto da solo!
-        computed_twd = wind_estimator.estimate_twd(df, api_twd=api_twd)
+        cached_data = get_cached_weather(start_ts)
         
-        if computed_twd is None:
-            computed_twd = 0.0
-        print(f" -> TWD Definitiva Calcolata: {computed_twd}°")
+        if cached_data:
+            print("🟢 Dati meteo trovati nella CACHE locale! (Risparmiata chiamata API)")
+            api_twd_list = cached_data
+            
+        elif STORMGLASS_API_KEY:
+            print("🟠 Dati non in cache. Chiamata ai server Stormglass in corso...")
+            url = f"https://api.stormglass.io/v2/weather/point"
+            params = {
+                'lat': lat_start,
+                'lng': lon_start,
+                'params': 'windDirection',
+                'start': start_ts,
+                'end': end_ts,
+                'source': 'sg'
+            }
+            headers = {'Authorization': STORMGLASS_API_KEY}
+            
+            try:
+                response = requests.get(url, params=params, headers=headers)
+                if response.status_code == 200:
+                    data = response.json()
+                    api_twd_list = [hour['windDirection']['sg'] for hour in data['hours']]
+                    save_cached_weather(start_ts, api_twd_list)
+                    print("✅ Nuovi dati meteo scaricati e salvati in cache.")
+                else:
+                    print(f"❌ Errore API Stormglass ({response.status_code}): Limite raggiunto o errore.")
+            except Exception as e:
+                print(f"❌ Errore di connessione a Stormglass: {e}")
+        else:
+            print("⚠️ Nessuna API Key configurata. Uso la stima GPS.")
+        
+
+        # --- SOLUZIONE A: RESAMPLING A 1Hz ---
+        print("Standardizzazione frequenza a 1Hz...")
+        df.index = pd.to_datetime(df.index)
+        # Creiamo una riga per ogni secondo, interpolando i dati mancanti (lineare per coordinate e velocità)
+        df = df.resample('1S').interpolate(method='linear')
+        # Per la rotta (gradi), usiamo un'interpolazione che capisce il cerchio 0-360
+        df['cog_deg'] = df['cog_deg'].ffill() # Semplice ffill per la rotta per evitare artefatti durante il calcolo
+
+        # --- FASE 3: CALCOLO VENTO DINAMICO ---
+        print("3/4 Generazione Curva Vento Dinamica...")
+
+        if api_twd_list and len(api_twd_list) > 0: 
+            # Interpolazione lineare tra i punti orari dell'API
+            twd_points = np.linspace(api_twd_list[0], api_twd_list[-1], len(df))
+            df['twd_dynamic'] = twd_points
+        else:
+            print("Stima del vento GPS a blocchi di 30 minuti...")
+            df['twd_dynamic'] = np.nan
+            
+            try:
+                df.index = pd.to_datetime(df.index)
+                
+                # Dividiamo in blocchi da 30 minuti
+                for interval, block in df.groupby(pd.Grouper(freq='30min')):
+                    if len(block) > 20: 
+                        twd_block = wind_estimator.estimate_twd(block)
+                        if twd_block is not None:
+                            mid_idx = block.index[len(block)//2]
+                            df.loc[mid_idx, 'twd_dynamic'] = twd_block
+
+                valid_nodes = df['twd_dynamic'].dropna()
+                
+                if not valid_nodes.empty:
+                    # Srotoliamo i gradi e interpoliamo
+                    unwrapped_rads = np.unwrap(np.radians(valid_nodes.values))
+                    df.loc[valid_nodes.index, 'twd_dynamic'] = unwrapped_rads
+                    df['twd_dynamic'] = df['twd_dynamic'].interpolate(method='time')
+                    df['twd_dynamic'] = (np.degrees(df['twd_dynamic']) % 360)
+                    df['twd_dynamic'] = df['twd_dynamic'].bfill().ffill()
+                else:
+                    df['twd_dynamic'] = global_computed_twd
+
+            except Exception as e:
+                print(f"⚠️ Errore nel calcolo a blocchi ({e}), fallback su dato unico.")
+                df['twd_dynamic'] = global_computed_twd
+
 
         # --- FASE 4: MANOVRE E TWA ---
         print("4/4 Calcolo Manovre e Angoli...")
-        analyzer = ManeuverAnalyzer()
-        df = analyzer.tag_points_of_sail(df, computed_twd)
-        maneuvers_log = analyzer.detect_maneuvers(df, computed_twd)
+        # Usa ESCLUSIVAMENTE la curva dinamica per tutti i calcoli
+        df = analyzer.tag_points_of_sail(df, df['twd_dynamic'])
+        maneuvers_log = analyzer.detect_maneuvers(df, df['twd_dynamic'])
         print(f" -> Trovate {len(maneuvers_log)} manovre.")
 
-        df['twa'] = analyzer.angular_diff(df['cog_deg'], computed_twd).abs()
+        # Calcolo dell'Angolo Vento Vero (TWA) usando il vento dinamico istantaneo
+        df['twa'] = analyzer.angular_diff(df['cog_deg'], df['twd_dynamic']).abs()
 
         # --- FASE 5: OUTPUT JSON ---
         print("5/5 Generazione Output...")
         
-        # SOLO ORA possiamo trasformare gli eventuali NaN rimasti in 0.0 per compiacere React
         df = df.fillna(0.0)
-        
-        map_df = df.iloc[::5] # Sub-campionamento per non far esplodere la mappa
+        map_df = df.iloc[::5] # Sub-campionamento per la mappa
         
         track_data = []
-        for _, row in map_df.iterrows():
+        for idx, row in map_df.iterrows():
             if row['lat'] != 0.0 and row['lon'] != 0.0:
                 track_data.append({
+                    "timestamp": str(idx),
                     "lat": float(row['lat']),
                     "lon": float(row['lon']),
                     "sog_knots": float(row['sog_knots']),
@@ -137,30 +220,36 @@ async def analyze_fit_file(file: UploadFile = File(...)):
                     "andatura": str(row.get('andatura', 'Sconosciuta'))
                 })
 
-        # Estraiamo la data REALE di partenza. Nei file FIT l'orario si trova sempre nell'indice (index).
         try:
             real_start_time = str(df.index[0])
+            real_end_time = str(df.index[-1])
+            duration_sec = int((pd.to_datetime(real_end_time) - pd.to_datetime(real_start_time)).total_seconds())
         except Exception:
             real_start_time = "2024-01-01T12:00:00Z"
+            duration_sec = len(df)
+            
+        # Per la dashboard prendiamo il dato API inziale, se esiste
+        api_twd_display = api_twd_list[0] if api_twd_list else None
 
         report = {
             "session_info": {
                 "file_name": file.filename,
-                "start_time": real_start_time, # <-- ORA E' LA DATA REALE!
-                "duration_seconds": len(df),
+                "start_time": real_start_time, 
+                "duration_seconds": duration_sec,
                 "distance_nm": round(distance_nm, 2),
                 "sog_max_kts": round(sog_max, 2),
                 "sog_avg_kts": round(sog_avg, 2)
             },
             "environment": {
-                "api_twd_deg": api_twd,
-                "computed_twd_deg": float(computed_twd)
+                "api_twd_deg": api_twd_display,
+                "computed_twd_deg": float(global_computed_twd),
+                "is_estimated": api_twd_list is None
             },
             "track_data": track_data,
             "maneuvers": maneuvers_log
         }
         
-        print(f"✅ Analisi completata! Punti mappa estratti: {len(track_data)}")
+        print(f"✅ Analisi completata! Punti mappa: {len(track_data)}, Durata reale: {duration_sec}s")
         return report
 
     except Exception as e:
