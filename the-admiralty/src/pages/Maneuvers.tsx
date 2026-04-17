@@ -1,13 +1,15 @@
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
+import ManeuverSpeedChart from '../components/charts/ManeuverSpeedChart';
 
-export default function Maneuvers({ maneuvers = [] }: { maneuvers: any[] }) {
-  
+export default function Maneuvers({ maneuvers = [], highResTrack = [] }: { maneuvers: any[], highResTrack?: any[] }) {
+
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<'ALL' | 'Virata' | 'Strambata'>('ALL');
   const [resultFilter, setResultFilter] = useState<'ALL' | 'FLY' | 'TOUCH'>('ALL');
-  const [flyThreshold, setFlyThreshold] = useState<number>(12.0); 
+  const [flyThreshold, setFlyThreshold] = useState<number>(12.0);
   const [isTypeDropdownOpen, setIsTypeDropdownOpen] = useState(false);
   const [collapsedLegs, setCollapsedLegs] = useState<Record<string, boolean>>({});
+  const [selectedManeuver, setSelectedManeuver] = useState<any | null>(null);
 
   const safeTime = (ts: string) => {
      if (!ts) return "--:--:--";
@@ -201,7 +203,11 @@ export default function Maneuvers({ maneuvers = [] }: { maneuvers: any[] }) {
                           const timeString = safeTime(m.timestamp);
 
                           return (
-                            <div key={idx} className="grid grid-cols-12 gap-2 px-6 py-3.5 items-center hover:bg-gray-50/80 transition-colors">
+                            <div
+                              key={idx}
+                              onClick={() => setSelectedManeuver(m)}
+                              className="grid grid-cols-12 gap-2 px-6 py-3.5 items-center hover:bg-gray-50/80 transition-colors cursor-pointer"
+                            >
                               
                               <div className="col-span-2 flex flex-col">
                                 <span className="text-xs font-mono text-gray-800">{timeString}</span>
@@ -277,6 +283,76 @@ export default function Maneuvers({ maneuvers = [] }: { maneuvers: any[] }) {
           </div>
         )}
       </div>
+
+      {/* MODAL DETTAGLIO MANOVRA — grafico SOG istante-per-istante */}
+      {selectedManeuver && (
+        <div
+          className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-center justify-center p-6"
+          onClick={() => setSelectedManeuver(null)}
+        >
+          <div
+            className="bg-white rounded-lg shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+              <div>
+                <div className="flex items-center gap-2">
+                  <div className={`w-2 h-2 rounded-full ${selectedManeuver.type === 'Virata' ? 'bg-[#d4af37]' : 'bg-[#718eb2]'}`}></div>
+                  <h3 className="text-lg font-serif font-bold text-navy-900">{selectedManeuver.type}</h3>
+                  <span className="text-xs text-gray-400 font-mono">{selectedManeuver.maneuverId}</span>
+                </div>
+                <p className="text-[10px] text-gray-400 uppercase tracking-widest mt-1">
+                  {safeTime(selectedManeuver.timestamp)} — Velocità istante-per-istante
+                </p>
+              </div>
+              <button
+                onClick={() => setSelectedManeuver(null)}
+                className="text-gray-400 hover:text-navy-900 transition-colors"
+                aria-label="Chiudi"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="px-6 py-4">
+              <div className="grid grid-cols-5 gap-3 mb-6">
+                <div className="bg-gray-50 rounded p-3 text-center">
+                  <div className="text-[9px] text-gray-400 uppercase tracking-widest mb-1">V. In</div>
+                  <div className="text-lg font-serif font-bold text-navy-900">{selectedManeuver.sog_in != null ? selectedManeuver.sog_in.toFixed(1) : '--'}</div>
+                </div>
+                <div className="bg-red-50 rounded p-3 text-center">
+                  <div className="text-[9px] text-red-700 uppercase tracking-widest mb-1">V. Min</div>
+                  <div className="text-lg font-serif font-bold text-red-700">{selectedManeuver.sog_min != null ? selectedManeuver.sog_min.toFixed(1) : '--'}</div>
+                </div>
+                <div className="bg-blue-50 rounded p-3 text-center">
+                  <div className="text-[9px] text-blue-700 uppercase tracking-widest mb-1">V. Out</div>
+                  <div className="text-lg font-serif font-bold text-blue-700">{selectedManeuver.sog_out != null ? selectedManeuver.sog_out.toFixed(1) : '--'}</div>
+                </div>
+                <div className="bg-gray-50 rounded p-3 text-center">
+                  <div className="text-[9px] text-gray-400 uppercase tracking-widest mb-1">Δ V</div>
+                  <div className={`text-lg font-serif font-bold ${selectedManeuver.delta_v >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {selectedManeuver.delta_v >= 0 ? '+' : ''}{selectedManeuver.delta_v != null ? selectedManeuver.delta_v.toFixed(1) : '--'}
+                  </div>
+                </div>
+                <div className="bg-gray-50 rounded p-3 text-center">
+                  <div className="text-[9px] text-gray-400 uppercase tracking-widest mb-1">TTR (50%)</div>
+                  <div className="text-lg font-serif font-bold text-navy-900">
+                    {typeof selectedManeuver.recovery_time_s === 'number' ? `${selectedManeuver.recovery_time_s}s` : '—'}
+                  </div>
+                </div>
+              </div>
+
+              <ManeuverSpeedChart
+                maneuver={selectedManeuver}
+                highResTrack={highResTrack}
+                height={320}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,4 +1,3 @@
-import React from 'react';
 // @ts-ignore
 import ReactPlot from 'react-plotly.js';
 
@@ -26,17 +25,29 @@ export default function TelemetryMap({ trackData = [] }: { trackData: any[] }) {
     <div className="absolute inset-0 w-full h-full z-0">
       <Plot
         data={[
+          // Traccia 1: linea sottile di collegamento (sotto i markers).
+          // Rende visibile il verso di percorrenza collegando i punti.
           {
-            type: 'scattermap', // AGGIORNATO DA scattermapbox a scattermap come richiesto dal nuovo Plotly
+            type: 'scattermap',
             lat: lats,
             lon: lons,
-            mode: 'markers+lines',
+            mode: 'lines',
+            line: { width: 1.5, color: 'rgba(6, 19, 37, 0.35)' },
+            hoverinfo: 'skip',
+            showlegend: false
+          },
+          // Traccia 2: markers colorati per SOG (rendering principale).
+          {
+            type: 'scattermap',
+            lat: lats,
+            lon: lons,
+            mode: 'markers',
             marker: {
-              size: 6,
+              size: 4,
               color: speeds,
               colorscale: 'Plasma',
               showscale: true,
-              colorbar: { 
+              colorbar: {
                 title: 'SOG (kts)',
                 thickness: 15,
                 len: 0.8,
@@ -44,9 +55,37 @@ export default function TelemetryMap({ trackData = [] }: { trackData: any[] }) {
                 tickfont: { family: 'Inter, sans-serif', size: 10 }
               }
             },
-            line: { width: 1, color: '#061325' },
             text: hoverTexts,
-            hoverinfo: 'text'
+            hoverinfo: 'text',
+            showlegend: false
+          },
+          // Traccia 3: START — primo punto, cerchio verde con etichetta.
+          {
+            type: 'scattermap',
+            lat: [lats[0]],
+            lon: [lons[0]],
+            mode: 'markers+text',
+            marker: { size: 14, color: '#10b981' },
+            text: ['START'],
+            textposition: 'top right',
+            textfont: { family: 'Inter, sans-serif', size: 12, color: '#10b981' },
+            hovertext: ['Inizio tracciato'],
+            hoverinfo: 'text',
+            showlegend: false
+          },
+          // Traccia 4: FINE — ultimo punto, cerchio rosso con etichetta.
+          {
+            type: 'scattermap',
+            lat: [lats[lats.length - 1]],
+            lon: [lons[lons.length - 1]],
+            mode: 'markers+text',
+            marker: { size: 14, color: '#ef4444' },
+            text: ['FINE'],
+            textposition: 'top right',
+            textfont: { family: 'Inter, sans-serif', size: 12, color: '#ef4444' },
+            hovertext: ['Fine tracciato'],
+            hoverinfo: 'text',
+            showlegend: false
           }
         ]}
         layout={{

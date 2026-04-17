@@ -1,8 +1,10 @@
 import React, { useState, useMemo } from 'react';
+import ManeuverSpeedChart from './ManeuverSpeedChart';
 
 interface ManeuverFootprintProps {
   maneuvers: any[];
   trackData: any[];
+  highResTrack: any[];
 }
 
 // --- REGOLE FOILING SEMPLIFICATE (FLY vs TOUCH) ---
@@ -19,9 +21,12 @@ const getFoilingStatus = (type: string, sogMin: number) => {
   }
 };
 
-export default function ManeuverFootprint({ maneuvers, trackData }: ManeuverFootprintProps) {
+export default function ManeuverFootprint({ maneuvers, trackData, highResTrack }: ManeuverFootprintProps) {
   const [mode, setMode] = useState<'FLY' | 'TOUCH'>('FLY');
   const [selectedIndex, setSelectedIndex] = useState(0);
+  // Secondi relativi al cambio mura: sincronizza il grafico SOG con l'icona
+  // barca nel footprint. null = mouse fuori dal grafico.
+  const [hoveredTime, setHoveredTime] = useState<number | null>(null);
 
   // --- 1. FILTRAGGIO E ORDINAMENTO FOILING ---
   const sortedManeuvers = useMemo(() => {
@@ -39,6 +44,7 @@ export default function ManeuverFootprint({ maneuvers, trackData }: ManeuverFoot
   }, [maneuvers, mode]);
 
   React.useEffect(() => { setSelectedIndex(0); }, [mode]);
+  React.useEffect(() => { setHoveredTime(null); }, [selectedIndex, mode]);
 
   const activeManeuver = sortedManeuvers[selectedIndex];
   const activeStatus = activeManeuver ? getFoilingStatus(activeManeuver.type, Number(activeManeuver.sog_min)) : null;
@@ -96,7 +102,7 @@ export default function ManeuverFootprint({ maneuvers, trackData }: ManeuverFoot
 
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
 
-    const points = validSegment.map((p, i) => {
+    const points = validSegment.map((p) => {
       const lat = Number(p.lat);
       const lon = Number(p.lon);
       
@@ -166,6 +172,34 @@ export default function ManeuverFootprint({ maneuvers, trackData }: ManeuverFoot
       baseStroke 
     };
   }, [activeManeuver, trackData, mode, activeStatus]);
+
+  // Posizione interpolata dell'icona barca in base al tempo hover dal chart.
+  // Scorre linearmente tra due punti consecutivi del footprint (trackData 0.2Hz)
+  // per dare un movimento fluido anche se la traccia è a 5s di distanza.
+  const boatMarker = useMemo(() => {
+    if (hoveredTime == null || !renderData || !activeManeuver?.timestamp) return null;
+    const t0 = new Date(activeManeuver.timestamp.replace(' ', 'T')).getTime();
+    if (isNaN(t0)) return null;
+    const target = t0 + hoveredTime * 1000;
+    const pts = renderData.points;
+    const toEpoch = (t: string) => new Date((t || '').replace(' ', 'T')).getTime();
+    for (let i = 0; i < pts.length - 1; i++) {
+      const ta = toEpoch(pts[i].time);
+      const tb = toEpoch(pts[i + 1].time);
+      if (isNaN(ta) || isNaN(tb)) continue;
+      if (target >= ta && target <= tb) {
+        const frac = tb === ta ? 0 : (target - ta) / (tb - ta);
+        const x = pts[i].x + (pts[i + 1].x - pts[i].x) * frac;
+        const y = pts[i].y + (pts[i + 1].y - pts[i].y) * frac;
+        const sog = pts[i].sog + (pts[i + 1].sog - pts[i].sog) * frac;
+        const dx = pts[i + 1].x - pts[i].x;
+        const dy = pts[i + 1].y - pts[i].y;
+        const heading = (Math.atan2(dy, dx) * 180) / Math.PI + 90;
+        return { x, y, sog, heading };
+      }
+    }
+    return null;
+  }, [hoveredTime, renderData, activeManeuver]);
 
   return (
     <div className="flex flex-col h-full bg-white">
@@ -243,6 +277,9 @@ export default function ManeuverFootprint({ maneuvers, trackData }: ManeuverFoot
           )}
         </div>
 
+        {/* COLONNA DESTRA: footprint XY + grafico SOG sotto */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+
         {/* L'ACQUA E LA TRAIETTORIA */}
         <div className="flex-1 relative bg-[#061325] overflow-hidden flex items-center justify-center">
           <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(#ffffff 1px, transparent 1px)', backgroundSize: '40px 40px' }}></div>
@@ -291,6 +328,20 @@ export default function ManeuverFootprint({ maneuvers, trackData }: ManeuverFoot
                 <polygon points={`-${renderData.baseStroke*1.5},${renderData.baseStroke*2} 0,-${renderData.baseStroke*3} ${renderData.baseStroke*1.5},${renderData.baseStroke*2} 0,${renderData.baseStroke}`} fill="white" />
                 <circle cx="0" cy="0" r={renderData.baseStroke * 5} fill="none" stroke={renderData.color} strokeWidth={renderData.baseStroke * 0.6} opacity="0.8" />
               </g>
+
+              {/* ICONA BARCA SINCRONIZZATA CON L'HOVER DEL CHART SOG */}
+              {boatMarker && (
+                <g transform={`translate(${boatMarker.x}, ${boatMarker.y}) rotate(${boatMarker.heading})`} style={{ pointerEvents: 'none' }}>
+                  <circle cx="0" cy="0" r={renderData.baseStroke * 4} fill="#d4af37" opacity="0.18" />
+                  <circle cx="0" cy="0" r={renderData.baseStroke * 2.6} fill="none" stroke="#d4af37" strokeWidth={renderData.baseStroke * 0.4} opacity="0.9" />
+                  <polygon
+                    points={`-${renderData.baseStroke*1.3},${renderData.baseStroke*1.8} 0,-${renderData.baseStroke*2.8} ${renderData.baseStroke*1.3},${renderData.baseStroke*1.8} 0,${renderData.baseStroke*0.8}`}
+                    fill="#d4af37"
+                    stroke="white"
+                    strokeWidth={renderData.baseStroke * 0.35}
+                  />
+                </g>
+              )}
 
             </svg>
           ) : (
@@ -367,6 +418,24 @@ export default function ManeuverFootprint({ maneuvers, trackData }: ManeuverFoot
               </div>
             </div>
           )}
+
+        </div>
+
+        {/* GRAFICO SOG ISTANTANEO — finestra -20s / +40s dal cambio mura */}
+        <div className="border-t border-gray-200 bg-white px-6 py-3 shrink-0">
+          <div className="flex items-baseline justify-between mb-1">
+            <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+              Velocità istante-per-istante
+            </h4>
+            <span className="text-[9px] text-gray-400 font-mono">-20s / +40s</span>
+          </div>
+          <ManeuverSpeedChart
+            maneuver={activeManeuver}
+            highResTrack={highResTrack}
+            height={200}
+            onHoverChange={setHoveredTime}
+          />
+        </div>
 
         </div>
       </div>

@@ -25,7 +25,7 @@ export default function Dashboard() {
 
   // --- DEBOUNCE STATE ---
   const [debouncedTime, setDebouncedTime] = useState({ startSecs: 0, endSecs: 0 });
-  const debounceTimer = useRef<NodeJS.Timeout | null>(null);
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Inizializzazione al caricamento del file
   useEffect(() => {
@@ -122,7 +122,16 @@ export default function Dashboard() {
     const filterEndEpoch = startEpoch + (eSecs * 1000);
 
     const segTrack = telemetryData.track_data.filter((p: any) => {
-      if (!p.timestamp) return true; 
+      if (!p.timestamp) return true;
+      const ptStr = p.timestamp.replace(' ', 'T');
+      const t = new Date(ptStr.endsWith('Z') ? ptStr : ptStr + 'Z').getTime();
+      return t >= filterStartEpoch && t <= filterEndEpoch;
+    });
+
+    // Binario 1Hz — stesso filtro temporale, usato da mappa (se sessione <= 1h),
+    // footprint/chart SOG delle manovre e StartAnalysis.
+    const segHighRes = (telemetryData.high_res_track || []).filter((p: any) => {
+      if (!p.timestamp) return true;
       const ptStr = p.timestamp.replace(' ', 'T');
       const t = new Date(ptStr.endsWith('Z') ? ptStr : ptStr + 'Z').getTime();
       return t >= filterStartEpoch && t <= filterEndEpoch;
@@ -150,21 +159,30 @@ export default function Dashboard() {
       traverso: getAvg(['traverso', 'reaching']),
       poppa: getAvg(['poppa', 'lasco', 'downwind', 'run', 'broad']),
       filteredManeuvers: segManeuvers,
-      filteredTrack: segTrack 
+      filteredTrack: segTrack,
+      filteredHighRes: segHighRes
     };
   }, [telemetryData, debouncedTime]);
 
+  // Soglia: 1Hz in mappa solo se la sessione totale dura al massimo 1h.
+  // Oltre, fallback al track_data downsampled (0.2Hz) per non appesantire il DOM.
   const MapMemoized = useMemo(() => {
     if (!telemetryData) return null;
-    return <TelemetryMap trackData={segmentMetrics ? segmentMetrics.filteredTrack : telemetryData.track_data} />;
+    const durationSecs = telemetryData.session_info?.duration_seconds ?? 0;
+    const useHighRes = durationSecs <= 3600 && (telemetryData.high_res_track?.length ?? 0) > 0;
+    const source = useHighRes
+      ? (segmentMetrics ? segmentMetrics.filteredHighRes : telemetryData.high_res_track)
+      : (segmentMetrics ? segmentMetrics.filteredTrack : telemetryData.track_data);
+    return <TelemetryMap trackData={source} />;
   }, [segmentMetrics, telemetryData]);
 
   const LabMemoized = useMemo(() => {
     if (!telemetryData) return null;
     return (
-      <ManeuverFootprint 
-        maneuvers={segmentMetrics ? segmentMetrics.filteredManeuvers : telemetryData.maneuvers} 
-        trackData={segmentMetrics ? segmentMetrics.filteredTrack : telemetryData.track_data} 
+      <ManeuverFootprint
+        maneuvers={segmentMetrics ? segmentMetrics.filteredManeuvers : telemetryData.maneuvers}
+        trackData={segmentMetrics ? segmentMetrics.filteredTrack : telemetryData.track_data}
+        highResTrack={segmentMetrics ? segmentMetrics.filteredHighRes : (telemetryData.high_res_track || [])}
       />
     );
   }, [segmentMetrics, telemetryData]);
@@ -298,7 +316,10 @@ export default function Dashboard() {
         <div className="flex-1 w-full">
           
           {currentView === 'maneuvers' && segmentMetrics && (
-            <Maneuvers maneuvers={segmentMetrics.filteredManeuvers} />
+            <Maneuvers
+              maneuvers={segmentMetrics.filteredManeuvers}
+              highResTrack={segmentMetrics.filteredHighRes}
+            />
           )}
 
           {currentView === 'lab' && (
