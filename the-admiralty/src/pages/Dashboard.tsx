@@ -51,144 +51,106 @@ export default function Dashboard() {
   const [currentView, setCurrentView] = useState<'overview' | 'maneuvers' | 'lab' | 'start'>('overview');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
-  // --- STATI TEMPORALI RELATIVI ---
-  const [startMin, setStartMin] = useState<number | string>(0);
-  const [startSec, setStartSec] = useState<number | string>(0); 
-  const [endMin, setEndMin] = useState<number | string>(10);
-  const [endSec, setEndSec] = useState<number | string>(0); 
-
-  // --- STATI TEMPORALI ASSOLUTI (L'orologio) ---
+  // --- FILTRO TEMPORALE IN UTC ASSOLUTO ---
+  // Sorgente di verita' unica per il filtro: un intervallo in millisecondi
+  // UTC. La UI mostra i valori in due modi (relativo alla sessione attiva
+  // oppure orologio solare HH:MM:SS), entrambi derivati da pendingRange.
   const [useAbsoluteTime, setUseAbsoluteTime] = useState(false);
-  const [absStartTime, setAbsStartTime] = useState<string>(''); 
-  const [absEndTime, setAbsEndTime] = useState<string>('');
-
-  // --- DEBOUNCE STATE ---
-  const [debouncedTime, setDebouncedTime] = useState({ startSecs: 0, endSecs: 0 });
+  const [pendingRange, setPendingRange] = useState<{ startMs: number; endMs: number } | null>(null);
+  const [debouncedRange, setDebouncedRange] = useState<{ startMs: number; endMs: number } | null>(null);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Inizializzazione al caricamento del file
-  useEffect(() => {
-    if (telemetryData && telemetryData.session_info) {
-      setStartMin(0);
-      setStartSec(0);
-      const totalSecs = telemetryData.session_info.duration_seconds;
-      setEndMin(Math.floor(totalSecs / 60));
-      setEndSec(totalSecs % 60);
+  // Parsing robusto del timestamp ISO restituito dal backend: supporta sia
+  // 'YYYY-MM-DD HH:MM:SS' che 'YYYY-MM-DDTHH:MM:SS[Z]'. In Python pandas
+  // restituisce la forma con spazio, l'aggiungiamo Z per forzare UTC.
+  const parseIsoMs = (s: string): number => {
+    const norm = s.replace(' ', 'T');
+    return new Date(norm.endsWith('Z') ? norm : norm + 'Z').getTime();
+  };
 
-      const startStr = telemetryData.session_info.start_time.replace(' ', 'T');
-      const startDate = new Date(startStr.endsWith('Z') ? startStr : startStr + 'Z');
-      const endDate = new Date(startDate.getTime() + totalSecs * 1000);
-
-      const formatTimeInput = (d: Date) => d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-      
-      setAbsStartTime(formatTimeInput(startDate));
-      setAbsEndTime(formatTimeInput(endDate));
-
-      setDebouncedTime({ startSecs: 0, endSecs: totalSecs });
+  // Bounds globali: unione di [session_start, session_end] delle sessioni
+  // ready. Usati per inizializzare il filtro al primo caricamento e per
+  // fare il clamp quando si aggiungono/rimuovono sessioni.
+  const globalBounds = useMemo<{ startMs: number; endMs: number } | null>(() => {
+    let minStart = Infinity;
+    let maxEnd = -Infinity;
+    for (const s of sessions) {
+      if (s.status !== 'ready' || !s.sessionInfo) continue;
+      const startMs = parseIsoMs(s.sessionInfo.start_time);
+      if (Number.isNaN(startMs)) continue;
+      const endMs = startMs + s.sessionInfo.duration_seconds * 1000;
+      if (startMs < minStart) minStart = startMs;
+      if (endMs > maxEnd) maxEnd = endMs;
     }
-  }, [telemetryData]);
+    if (!isFinite(minStart) || !isFinite(maxEnd)) return null;
+    return { startMs: minStart, endMs: maxEnd };
+  }, [sessions]);
 
-  // Sincronizzazione Temporale
+  // Quando i bounds cambiano (prima sessione, add/remove): inizializza o
+  // clampa il range. Clamp sincrono anche sul debouncedRange cosi' l'utente
+  // non aspetta 500ms per vedere i grafici riallinearsi.
   useEffect(() => {
-    if (!telemetryData) return;
-
-    let targetStartSecs = 0;
-    let targetEndSecs = 0;
-
-    const startStr = telemetryData.session_info.start_time.replace(' ', 'T');
-    const sessionStartDate = new Date(startStr.endsWith('Z') ? startStr : startStr + 'Z');
-
-    if (!useAbsoluteTime) {
-      targetStartSecs = (Number(startMin) || 0) * 60 + (Number(startSec) || 0);
-      targetEndSecs = (Number(endMin) || 0) * 60 + (Number(endSec) || 0);
-
-      const newAbsStart = new Date(sessionStartDate.getTime() + targetStartSecs * 1000);
-      const newAbsEnd = new Date(sessionStartDate.getTime() + targetEndSecs * 1000);
-      const formatTimeInput = (d: Date) => d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-      setAbsStartTime(formatTimeInput(newAbsStart));
-      setAbsEndTime(formatTimeInput(newAbsEnd));
-    } else {
-      try {
-        const createDateFromTime = (timeStr: string) => {
-           if (!timeStr) return new Date(sessionStartDate);
-           const parts = timeStr.split(':').map(Number);
-           const d = new Date(sessionStartDate);
-           d.setHours(parts[0] || 0, parts[1] || 0, parts[2] || 0, 0);
-           return d;
-        };
-
-        const targetStart = createDateFromTime(absStartTime);
-        const targetEnd = createDateFromTime(absEndTime);
-
-        if (targetStart.getTime() < sessionStartDate.getTime() - 3600000) targetStart.setDate(targetStart.getDate() + 1);
-        if (targetEnd.getTime() < targetStart.getTime()) targetEnd.setDate(targetEnd.getDate() + 1);
-
-        targetStartSecs = Math.max(0, Math.floor((targetStart.getTime() - sessionStartDate.getTime()) / 1000));
-        targetEndSecs = Math.max(0, Math.floor((targetEnd.getTime() - sessionStartDate.getTime()) / 1000));
-
-        setStartMin(Math.floor(targetStartSecs / 60));
-        setStartSec(targetStartSecs % 60);
-        setEndMin(Math.floor(targetEndSecs / 60));
-        setEndSec(targetEndSecs % 60);
-      } catch (e) {}
+    if (!globalBounds) {
+      setPendingRange(null);
+      setDebouncedRange(null);
+      return;
     }
+    const clampOrReset = (prev: { startMs: number; endMs: number } | null) => {
+      if (!prev) return { startMs: globalBounds.startMs, endMs: globalBounds.endMs };
+      const start = Math.max(globalBounds.startMs, Math.min(prev.startMs, globalBounds.endMs));
+      const end = Math.max(globalBounds.startMs, Math.min(prev.endMs, globalBounds.endMs));
+      if (end <= start) return { startMs: globalBounds.startMs, endMs: globalBounds.endMs };
+      return { startMs: start, endMs: end };
+    };
+    setPendingRange(clampOrReset);
+    setDebouncedRange(clampOrReset);
+  }, [globalBounds]);
 
+  // Debounce: pendingRange → debouncedRange dopo 500ms di inattivita'.
+  useEffect(() => {
+    if (!pendingRange) return;
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     debounceTimer.current = setTimeout(() => {
-      setDebouncedTime({ startSecs: targetStartSecs, endSecs: targetEndSecs });
+      setDebouncedRange(pendingRange);
     }, 500);
+    return () => {
+      if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    };
+  }, [pendingRange]);
 
-  }, [startMin, startSec, endMin, endSec, absStartTime, absEndTime, useAbsoluteTime, telemetryData]);
+  // Ancora "tempo 0" per la modalita' relativa: e' la session attiva. Cambiare
+  // sessione attiva cambia la lettura (i minuti visualizzati), non il range
+  // di filtro sottostante (che resta in UTC assoluto).
+  const primaryStartMs = useMemo(() => {
+    if (!primarySession?.sessionInfo) return null;
+    const ms = parseIsoMs(primarySession.sessionInfo.start_time);
+    return Number.isNaN(ms) ? null : ms;
+  }, [primarySession]);
 
 
-  // MOTORE DI TAGLIO
+  // MOTORE DI TAGLIO — ora lavora su un intervallo UTC assoluto.
   const segmentMetrics = useMemo(() => {
-    if (!telemetryData || !telemetryData.session_info.start_time) return null;
+    if (!telemetryData || !debouncedRange) return null;
 
-    const totalDuration = telemetryData.session_info.duration_seconds;
-    
-    let sSecs = Number(debouncedTime.startSecs) || 0;
-    let eSecs = Number(debouncedTime.endSecs) || totalDuration;
+    const filterStartEpoch = Math.min(debouncedRange.startMs, debouncedRange.endMs);
+    const filterEndEpoch = Math.max(debouncedRange.startMs, debouncedRange.endMs);
 
-    const minSecs = Math.min(sSecs, eSecs);
-    const maxSecs = Math.max(sSecs, eSecs);
-    sSecs = Math.max(0, minSecs);
-    eSecs = Math.min(totalDuration, maxSecs);
-
-    const startStr = telemetryData.session_info.start_time.replace(' ', 'T');
-    const startEpoch = new Date(startStr.endsWith('Z') ? startStr : startStr + 'Z').getTime();
-    const filterStartEpoch = startEpoch + (sSecs * 1000);
-    const filterEndEpoch = startEpoch + (eSecs * 1000);
-
-    const segTrack = telemetryData.track_data.filter((p: any) => {
-      if (!p.timestamp) return true;
-      const ptStr = p.timestamp.replace(' ', 'T');
-      const t = new Date(ptStr.endsWith('Z') ? ptStr : ptStr + 'Z').getTime();
+    const inRange = (ts: string | undefined, includeMissing: boolean) => {
+      if (!ts) return includeMissing;
+      const t = parseIsoMs(ts);
       return t >= filterStartEpoch && t <= filterEndEpoch;
-    });
+    };
 
-    // Binario 1Hz — stesso filtro temporale, usato da mappa (se sessione <= 1h),
-    // footprint/chart SOG delle manovre e StartAnalysis.
-    const segHighRes = (telemetryData.high_res_track || []).filter((p: any) => {
-      if (!p.timestamp) return true;
-      const ptStr = p.timestamp.replace(' ', 'T');
-      const t = new Date(ptStr.endsWith('Z') ? ptStr : ptStr + 'Z').getTime();
-      return t >= filterStartEpoch && t <= filterEndEpoch;
-    });
+    const segTrack = telemetryData.track_data.filter((p) => inRange(p.timestamp, true));
+    const segHighRes = (telemetryData.high_res_track || []).filter((p) => inRange(p.timestamp, true));
+    const segManeuvers = telemetryData.maneuvers.filter((m) => inRange(m.timestamp, false));
 
-    const segManeuvers = telemetryData.maneuvers.filter((m: any) => {
-      if (!m.timestamp) return false;
-      const mStr = m.timestamp.replace(' ', 'T');
-      const t = new Date(mStr.endsWith('Z') ? mStr : mStr + 'Z').getTime();
-      return t >= filterStartEpoch && t <= filterEndEpoch;
-    });
-
-    const virate = segManeuvers.filter((m: any) => m.type.toLowerCase().includes('virata')).length;
-    const strambate = segManeuvers.filter((m: any) => m.type.toLowerCase().includes('strambata')).length;
+    const virate = segManeuvers.filter((m) => m.type.toLowerCase().includes('virata')).length;
+    const strambate = segManeuvers.filter((m) => m.type.toLowerCase().includes('strambata')).length;
 
     const getAvg = (keywords: string[]) => {
-      const pts = segTrack.filter((p: any) => keywords.some(kw => (p.andatura || '').toLowerCase().includes(kw)));
-      return pts.length > 0 ? (pts.reduce((acc: number, p: any) => acc + p.sog_knots, 0) / pts.length).toFixed(1) : '--';
+      const pts = segTrack.filter((p) => keywords.some(kw => (p.andatura || '').toLowerCase().includes(kw)));
+      return pts.length > 0 ? (pts.reduce((acc, p) => acc + p.sog_knots, 0) / pts.length).toFixed(1) : '--';
     };
 
     return {
@@ -201,7 +163,7 @@ export default function Dashboard() {
       filteredTrack: segTrack,
       filteredHighRes: segHighRes
     };
-  }, [telemetryData, debouncedTime]);
+  }, [telemetryData, debouncedRange]);
 
   // Soglia: 1Hz in mappa solo se la sessione totale dura al massimo 1h.
   // Oltre, fallback al track_data downsampled (0.2Hz) per non appesantire il DOM.
@@ -359,8 +321,84 @@ export default function Dashboard() {
   }
 
   const { session_info, environment } = telemetryData;
-  const maxSessionMinutes = Math.floor(session_info.duration_seconds / 60);
   const isFiltered = segmentMetrics && segmentMetrics.filteredTrack.length < telemetryData.track_data.length;
+
+  // --- Derivati UI del filtro temporale ---
+  // Due letture dallo stesso pendingRange: relativa alla sessione attiva
+  // (M:S da t=0) oppure orologio solare UTC (HH:MM:SS). Gli handler scrivono
+  // sempre su pendingRange; il debounce a monte propaga a debouncedRange
+  // dopo 500ms di inattivita', cosi' i grafici non si ricalcolano a ogni tasto.
+  const fmtClockUtc = (ms: number) => {
+    const d = new Date(ms);
+    const hh = String(d.getUTCHours()).padStart(2, '0');
+    const mm = String(d.getUTCMinutes()).padStart(2, '0');
+    const ss = String(d.getUTCSeconds()).padStart(2, '0');
+    return `${hh}:${mm}:${ss}`;
+  };
+  const toMinSec = (ms: number, baseMs: number) => {
+    const totalSec = Math.max(0, Math.round((ms - baseMs) / 1000));
+    return { min: Math.floor(totalSec / 60), sec: totalSec % 60 };
+  };
+  const displayStart = pendingRange && primaryStartMs != null
+    ? toMinSec(pendingRange.startMs, primaryStartMs)
+    : { min: 0, sec: 0 };
+  const displayEnd = pendingRange && primaryStartMs != null
+    ? toMinSec(pendingRange.endMs, primaryStartMs)
+    : { min: 0, sec: 0 };
+  const absStartDisplay = pendingRange ? fmtClockUtc(pendingRange.startMs) : '';
+  const absEndDisplay = pendingRange ? fmtClockUtc(pendingRange.endMs) : '';
+  const maxRelMinutes = globalBounds && primaryStartMs != null
+    ? Math.max(0, Math.ceil((globalBounds.endMs - primaryStartMs) / 60000))
+    : 0;
+
+  const setStartRelative = (min: number, sec: number) => {
+    if (primaryStartMs == null) return;
+    const newStart = primaryStartMs + (min * 60 + sec) * 1000;
+    setPendingRange(prev => prev ? {
+      startMs: newStart,
+      endMs: Math.max(newStart + 1000, prev.endMs),
+    } : prev);
+  };
+  const setEndRelative = (min: number, sec: number) => {
+    if (primaryStartMs == null) return;
+    const newEnd = primaryStartMs + (min * 60 + sec) * 1000;
+    setPendingRange(prev => prev ? {
+      startMs: Math.min(prev.startMs, newEnd - 1000),
+      endMs: newEnd,
+    } : prev);
+  };
+
+  // Applica HH:MM[:SS] mantenendo la data (UTC) del ms di riferimento.
+  const parseClockUtc = (hms: string, referenceMs: number): number | null => {
+    const parts = hms.split(':');
+    if (parts.length < 2) return null;
+    const hh = Number(parts[0]);
+    const mm = Number(parts[1]);
+    const ss = parts[2] != null ? Number(parts[2]) : 0;
+    if ([hh, mm, ss].some(n => Number.isNaN(n))) return null;
+    const ref = new Date(referenceMs);
+    return Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth(), ref.getUTCDate(), hh, mm, ss);
+  };
+  const setStartAbsolute = (hms: string) => {
+    if (!pendingRange) return;
+    const newStart = parseClockUtc(hms, pendingRange.startMs);
+    if (newStart == null) return;
+    setPendingRange(prev => prev ? {
+      startMs: newStart,
+      endMs: Math.max(newStart + 1000, prev.endMs),
+    } : prev);
+  };
+  const setEndAbsolute = (hms: string) => {
+    if (!pendingRange) return;
+    let newEnd = parseClockUtc(hms, pendingRange.endMs);
+    if (newEnd == null) return;
+    // Cross-midnight: se l'ora digitata e' prima dello start, assume giorno successivo.
+    if (newEnd <= pendingRange.startMs) newEnd += 24 * 60 * 60 * 1000;
+    setPendingRange(prev => prev ? {
+      startMs: Math.min(prev.startMs, newEnd - 1000),
+      endMs: newEnd,
+    } : prev);
+  };
 
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col relative">
@@ -417,13 +455,40 @@ export default function Dashboard() {
                     <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Da:</span>
                     {!useAbsoluteTime ? (
                       <div className="flex items-center bg-gray-50 border border-gray-200 rounded focus-within:border-gold overflow-hidden">
-                        <input type="number" min="0" max={Number(endMin)} placeholder="Min" value={startMin} onChange={(e) => setStartMin(e.target.value === '' ? '' : Number(e.target.value))} className="w-12 py-1 px-1 bg-transparent text-xs font-bold text-navy-900 outline-none text-center" />
+                        <input
+                          type="number" min="0" max={displayEnd.min} placeholder="Min"
+                          value={displayStart.min}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            if (v === '') return;
+                            const n = Number(v);
+                            if (Number.isNaN(n)) return;
+                            setStartRelative(n, displayStart.sec);
+                          }}
+                          className="w-12 py-1 px-1 bg-transparent text-xs font-bold text-navy-900 outline-none text-center"
+                        />
                         <span className="text-gray-300 font-bold">:</span>
-                        <input type="number" min="0" max="59" placeholder="Sec" value={startSec} onChange={(e) => setStartSec(e.target.value === '' ? '' : Number(e.target.value))} className="w-12 py-1 px-1 bg-transparent text-xs font-bold text-navy-900 outline-none text-center" />
+                        <input
+                          type="number" min="0" max="59" placeholder="Sec"
+                          value={displayStart.sec}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            if (v === '') return;
+                            const n = Number(v);
+                            if (Number.isNaN(n)) return;
+                            setStartRelative(displayStart.min, n);
+                          }}
+                          className="w-12 py-1 px-1 bg-transparent text-xs font-bold text-navy-900 outline-none text-center"
+                        />
                       </div>
                     ) : (
                       <div className="flex items-center bg-gray-50 border border-gray-200 rounded focus-within:border-gold overflow-hidden">
-                         <input type="time" step="1" value={absStartTime} onChange={(e) => setAbsStartTime(e.target.value)} className="py-1 px-2 bg-transparent text-xs font-bold text-navy-900 outline-none" />
+                         <input
+                           type="time" step="1"
+                           value={absStartDisplay}
+                           onChange={(e) => setStartAbsolute(e.target.value)}
+                           className="py-1 px-2 bg-transparent text-xs font-bold text-navy-900 outline-none"
+                         />
                       </div>
                     )}
                   </div>
@@ -432,13 +497,40 @@ export default function Dashboard() {
                     <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">A:</span>
                     {!useAbsoluteTime ? (
                       <div className="flex items-center bg-gray-50 border border-gray-200 rounded focus-within:border-gold overflow-hidden">
-                        <input type="number" min={Number(startMin)} max={maxSessionMinutes} placeholder="Min" value={endMin} onChange={(e) => setEndMin(e.target.value === '' ? '' : Number(e.target.value))} className="w-12 py-1 px-1 bg-transparent text-xs font-bold text-navy-900 outline-none text-center" />
+                        <input
+                          type="number" min={displayStart.min} max={maxRelMinutes} placeholder="Min"
+                          value={displayEnd.min}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            if (v === '') return;
+                            const n = Number(v);
+                            if (Number.isNaN(n)) return;
+                            setEndRelative(n, displayEnd.sec);
+                          }}
+                          className="w-12 py-1 px-1 bg-transparent text-xs font-bold text-navy-900 outline-none text-center"
+                        />
                         <span className="text-gray-300 font-bold">:</span>
-                        <input type="number" min="0" max="59" placeholder="Sec" value={endSec} onChange={(e) => setEndSec(e.target.value === '' ? '' : Number(e.target.value))} className="w-12 py-1 px-1 bg-transparent text-xs font-bold text-navy-900 outline-none text-center" />
+                        <input
+                          type="number" min="0" max="59" placeholder="Sec"
+                          value={displayEnd.sec}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            if (v === '') return;
+                            const n = Number(v);
+                            if (Number.isNaN(n)) return;
+                            setEndRelative(displayEnd.min, n);
+                          }}
+                          className="w-12 py-1 px-1 bg-transparent text-xs font-bold text-navy-900 outline-none text-center"
+                        />
                       </div>
                     ) : (
                       <div className="flex items-center bg-gray-50 border border-gray-200 rounded focus-within:border-gold overflow-hidden">
-                         <input type="time" step="1" value={absEndTime} onChange={(e) => setAbsEndTime(e.target.value)} className="py-1 px-2 bg-transparent text-xs font-bold text-navy-900 outline-none" />
+                         <input
+                           type="time" step="1"
+                           value={absEndDisplay}
+                           onChange={(e) => setEndAbsolute(e.target.value)}
+                           className="py-1 px-2 bg-transparent text-xs font-bold text-navy-900 outline-none"
+                         />
                       </div>
                     )}
                   </div>
