@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import ManeuverFootprint from '../components/charts/ManeuverFootprint';
 import TelemetryMap from '../components/charts/TelemetryMap';
 import Maneuvers from './Maneuvers';
 import StartAnalysis from './StartAnalysis'; // IL NUOVO COMPONENTE
 import type { SessionData, AnalyzeResponse } from '../types/telemetry';
 import { assignColor } from '../data/palette';
+import SessionsBar from '../components/SessionsBar';
 
 export default function Dashboard() {
   // Stato multi-sessione. Un caricamento singolo produce un array di 1
@@ -16,14 +17,18 @@ export default function Dashboard() {
 
   // Sessione pilota per le viste che non sono ancora multi-atleta (tutte
   // per ora: overview header, StartAnalysis, Lab). Gli step 4-7 rimuoveranno
-  // questa dipendenza componente per componente.
+  // questa dipendenza componente per componente. Preferisce una sessione
+  // in stato 'ready' a un placeholder 'loading': cosi' se carichi N file in
+  // parallelo, il main layout appare non appena la prima analisi termina,
+  // senza aspettare la piu' lenta.
   const primarySession = useMemo(() => {
-    if (sessions.length === 0) return null;
+    const ready = sessions.filter(s => s.status === 'ready');
+    if (ready.length === 0) return null;
     if (activeSessionId) {
-      const found = sessions.find(s => s.id === activeSessionId);
+      const found = ready.find(s => s.id === activeSessionId);
       if (found) return found;
     }
-    return sessions[0];
+    return ready[0];
   }, [sessions, activeSessionId]);
 
   // Shim temporaneo: ricostruisce la vecchia forma {session_info, ...} da
@@ -222,47 +227,88 @@ export default function Dashboard() {
   }, [segmentMetrics, telemetryData]);
 
 
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+  const genId = () =>
+    (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
+      ? crypto.randomUUID()
+      : `sess-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-    setIsUploading(true);
-    const formData = new FormData();
-    formData.append("file", file);
+  // Upload N file in parallelo. Ogni file genera subito un placeholder
+  // 'loading' in state cosi' l'utente vede il progresso nella SessionsBar;
+  // poi fetch in Promise.all, ogni risposta aggiorna il suo placeholder in
+  // 'ready' o 'error' indipendentemente dagli altri.
+  const handleFilesUpload = async (files: FileList) => {
+    const fileArr = Array.from(files);
+    if (fileArr.length === 0) return;
 
-    try {
-      const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
-      const response = await fetch(`${apiUrl}/api/analyze`, { method: "POST", body: formData });
-      if (!response.ok) throw new Error("Errore durante l'analisi del file");
-      const data: AnalyzeResponse = await response.json();
-
-      const id = (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
-        ? crypto.randomUUID()
-        : `sess-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      const color = assignColor([]);
-      const newSession: SessionData = {
-        id,
+    // Pre-assegna id + colore per ogni file (il colore tiene conto degli slot
+    // gia' occupati dalle sessioni esistenti e da quelle in questa stessa batch).
+    const usedColors = sessions.map(s => s.color);
+    const placeholders: SessionData[] = [];
+    for (const file of fileArr) {
+      const runningColors = [...usedColors, ...placeholders.map(p => p.color)];
+      placeholders.push({
+        id: genId(),
         fileName: file.name,
         label: file.name.replace(/\.(fit|csv)$/i, ''),
-        color,
+        color: assignColor(runningColors),
         visible: true,
-        status: 'ready',
-        sessionInfo: data.session_info,
-        environment: data.environment,
-        trackData: data.track_data,
-        highResTrack: data.high_res_track,
-        maneuvers: data.maneuvers,
-      };
-
-      // Step 1: caricamento singolo rimpiazza l'array. Lo step 2 renderà
-      // l'upload additivo (N file in parallelo, sidebar con elenco).
-      setSessions([newSession]);
-      setActiveSessionId(id);
-    } catch (error) {
-      alert("Errore di caricamento: assicurati che il server Python sia acceso.");
-    } finally {
-      setIsUploading(false);
+        status: 'loading',
+      });
     }
+
+    setSessions(prev => [...prev, ...placeholders]);
+    if (!activeSessionId && placeholders.length > 0) {
+      setActiveSessionId(placeholders[0].id);
+    }
+    setIsUploading(true);
+
+    const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
+
+    await Promise.all(
+      placeholders.map(async (ph, idx) => {
+        const file = fileArr[idx];
+        const formData = new FormData();
+        formData.append("file", file);
+        try {
+          const response = await fetch(`${apiUrl}/api/analyze`, { method: "POST", body: formData });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const data: AnalyzeResponse = await response.json();
+          setSessions(prev => prev.map(s =>
+            s.id === ph.id
+              ? {
+                  ...s,
+                  status: 'ready' as const,
+                  sessionInfo: data.session_info,
+                  environment: data.environment,
+                  trackData: data.track_data,
+                  highResTrack: data.high_res_track,
+                  maneuvers: data.maneuvers,
+                }
+              : s
+          ));
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'Errore sconosciuto';
+          setSessions(prev => prev.map(s =>
+            s.id === ph.id ? { ...s, status: 'error' as const, error: msg } : s
+          ));
+        }
+      })
+    );
+
+    setIsUploading(false);
+  };
+
+  const handleSetActive = (id: string) => setActiveSessionId(id);
+
+  const handleToggleVisible = (id: string) =>
+    setSessions(prev => prev.map(s => (s.id === id ? { ...s, visible: !s.visible } : s)));
+
+  const handleRename = (id: string, newLabel: string) =>
+    setSessions(prev => prev.map(s => (s.id === id ? { ...s, label: newLabel } : s)));
+
+  const handleRemoveSession = (id: string) => {
+    setSessions(prev => prev.filter(s => s.id !== id));
+    if (activeSessionId === id) setActiveSessionId(null);
   };
 
   const handleDownload = () => {
@@ -277,15 +323,36 @@ export default function Dashboard() {
   };
 
   if (!telemetryData) {
+    const loadingCount = sessions.filter(s => s.status === 'loading').length;
+    const errorCount = sessions.filter(s => s.status === 'error').length;
     return (
       <div className="min-h-screen bg-paper flex items-center justify-center p-8">
         <div className="bg-surface p-12 text-center shadow-lg border border-gray-200 max-w-md w-full">
            <h1 className="text-3xl font-serif font-black text-navy-900 mb-2">Varea</h1>
            <p className="text-sm text-gray-500 mb-8">Analisi Telemetrica delle Prestazioni</p>
            <label className="bg-navy-900 text-white px-8 py-4 text-xs font-bold uppercase tracking-widest cursor-pointer hover:bg-navy-800 transition-colors block w-full relative">
-              {isUploading ? "Analisi in corso..." : "Carica File .FIT"}
-              <input type="file" className="hidden" accept=".fit,.FIT" onChange={handleFileUpload} disabled={isUploading} />
+              {loadingCount > 0
+                ? `Analisi ${loadingCount} file in corso...`
+                : 'Carica File .FIT'}
+              <input
+                type="file"
+                multiple
+                className="hidden"
+                accept=".fit,.FIT,.csv,.CSV"
+                onChange={(e) => {
+                  if (e.target.files && e.target.files.length > 0) {
+                    handleFilesUpload(e.target.files);
+                  }
+                  e.target.value = '';
+                }}
+                disabled={loadingCount > 0}
+              />
            </label>
+           {errorCount > 0 && (
+             <p className="text-xs text-red-500 mt-4">
+               {errorCount} file non analizzati. Controlla che il backend sia acceso e riprova.
+             </p>
+           )}
         </div>
       </div>
     );
@@ -314,7 +381,20 @@ export default function Dashboard() {
       </header>
 
       <main className="flex-1 w-full bg-paper flex flex-col">
-        
+
+        {/* BARRA SESSIONI: lista delle sessioni caricate con gestione colore/
+            label/visibilita'/rimozione + pulsante aggiungi file */}
+        <SessionsBar
+          sessions={sessions}
+          activeSessionId={activeSessionId}
+          onSetActive={handleSetActive}
+          onToggleVisible={handleToggleVisible}
+          onRename={handleRename}
+          onRemove={handleRemoveSession}
+          onAddFiles={handleFilesUpload}
+          isUploading={isUploading}
+        />
+
         {/* LA BARRA FILTRI SCOMPARE NELLA VISTA START (Lì c'è un time-picker dedicato) */}
         {currentView !== 'start' && (
           <div className="bg-white border-b border-gray-200 shadow-sm z-[90] relative px-6 lg:px-12 py-4">
@@ -405,8 +485,20 @@ export default function Dashboard() {
               <div className="flex gap-4 mb-12">
                 <button onClick={handleDownload} className="bg-white text-navy-900 border border-navy-900 px-6 py-3 text-xs font-bold uppercase tracking-widest hover:bg-gray-50 transition-colors">Esporta JSON</button>
                 <label className="bg-navy-900 text-white px-6 py-3 text-xs font-bold uppercase tracking-widest cursor-pointer hover:bg-navy-800 transition-colors">
-                  {isUploading ? "Caricamento..." : "Cambia File .FIT"}
-                  <input type="file" className="hidden" accept=".fit,.FIT" onChange={handleFileUpload} disabled={isUploading} />
+                  {isUploading ? "Caricamento..." : "Aggiungi File .FIT"}
+                  <input
+                    type="file"
+                    multiple
+                    className="hidden"
+                    accept=".fit,.FIT,.csv,.CSV"
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files.length > 0) {
+                        handleFilesUpload(e.target.files);
+                      }
+                      e.target.value = '';
+                    }}
+                    disabled={isUploading}
+                  />
                 </label>
               </div>
               
