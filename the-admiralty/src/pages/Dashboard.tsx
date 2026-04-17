@@ -165,17 +165,42 @@ export default function Dashboard() {
     };
   }, [telemetryData, debouncedRange]);
 
-  // Soglia: 1Hz in mappa solo se la sessione totale dura al massimo 1h.
-  // Oltre, fallback al track_data downsampled (0.2Hz) per non appesantire il DOM.
+  // Mappa multi-layer: una traccia per ogni sessione 'ready' e visibile, con
+  // colore = colore atleta. Con una sola sessione visibile si torna alla
+  // modalita' heatmap SOG storica. Decimazione (1200 pti totali) delegata a
+  // TelemetryMap cosi' il budget e' centralizzato.
+  //
+  // Scelta della sorgente per-sessione: 1Hz (high_res) solo se la sessione
+  // dura <= 1h, altrimenti track_data a 0.2Hz gia' downsampled dal backend.
+  // Decisione indipendente per atleta: confrontare una sessione breve 1Hz con
+  // una lunga 0.2Hz non introduce bias — la decimazione finale uniforma tutto.
   const MapMemoized = useMemo(() => {
-    if (!telemetryData) return null;
-    const durationSecs = telemetryData.session_info?.duration_seconds ?? 0;
-    const useHighRes = durationSecs <= 3600 && (telemetryData.high_res_track?.length ?? 0) > 0;
-    const source = useHighRes
-      ? (segmentMetrics ? segmentMetrics.filteredHighRes : telemetryData.high_res_track)
-      : (segmentMetrics ? segmentMetrics.filteredTrack : telemetryData.track_data);
-    return <TelemetryMap trackData={source} />;
-  }, [segmentMetrics, telemetryData]);
+    const visibleSessions = sessions.filter(s => s.status === 'ready' && s.visible);
+    if (visibleSessions.length === 0) return null;
+
+    const range = debouncedRange;
+    const inRange = (ts: string | undefined) => {
+      if (!range || !ts) return true;
+      const t = parseIsoMs(ts);
+      if (Number.isNaN(t)) return true;
+      return t >= range.startMs && t <= range.endMs;
+    };
+
+    const layers = visibleSessions.map(s => {
+      const durationSecs = s.sessionInfo?.duration_seconds ?? 0;
+      const useHighRes = durationSecs <= 3600 && (s.highResTrack?.length ?? 0) > 0;
+      const source = useHighRes ? (s.highResTrack ?? []) : (s.trackData ?? []);
+      return {
+        id: s.id,
+        label: s.label,
+        color: s.color,
+        points: source.filter(p => inRange(p.timestamp)),
+      };
+    });
+
+    const colorMode: 'speed' | 'session' = visibleSessions.length === 1 ? 'speed' : 'session';
+    return <TelemetryMap layers={layers} colorMode={colorMode} />;
+  }, [sessions, debouncedRange]);
 
   const LabMemoized = useMemo(() => {
     if (!telemetryData) return null;
