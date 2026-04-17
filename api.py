@@ -105,8 +105,12 @@ async def analyze_fit_file(file: UploadFile = File(...)):
         print("2/4 Controllo Dati Meteo...")
         api_twd_list = None
         
-        cached_data = get_cached_weather(start_ts)
-        
+        skip_cache = os.environ.get('VAREA_SKIP_WEATHER_CACHE', '').strip() == '1'
+        cached_data = None if skip_cache else get_cached_weather(start_ts)
+
+        if skip_cache:
+            print("⏭️  VAREA_SKIP_WEATHER_CACHE=1 → cache ignorata, forzo chiamata API.")
+
         if cached_data:
             print("🟢 Dati meteo trovati nella CACHE locale!")
             api_twd_list = cached_data
@@ -193,13 +197,20 @@ async def analyze_fit_file(file: UploadFile = File(...)):
                     "andatura": str(row.get('andatura', 'Sconosciuta'))
                 })
 
-        # BINARIO 2: Alta Risoluzione per Start Analysis (1Hz puro, solo essenziali)
+        # BINARIO 2: Alta Risoluzione 1Hz — StartAnalysis, mappa (solo sessioni <= 1h)
+        # e grafico SOG delle manovre (sempre). Arricchito con lat/lon/twa/andatura.
         high_res_track = []
         for idx, row in df.iterrows():
+            if row['lat'] == 0.0 and row['lon'] == 0.0:
+                continue
             high_res_track.append({
                 "timestamp": str(idx),
+                "lat": float(row['lat']),
+                "lon": float(row['lon']),
                 "sog_knots": float(row['sog_knots']),
-                "cog_deg": float(row['cog_deg'])
+                "cog_deg": float(row['cog_deg']),
+                "twa": float(row['twa']),
+                "andatura": str(row.get('andatura', 'Sconosciuta'))
             })
 
         try:

@@ -1,6 +1,19 @@
+import os
 import numpy as np
 import pandas as pd
 from typing import List, Dict, Any
+
+# Finestre di classificazione virata/strambata (secondi).
+# Derivate dal lag del filtro Schmitt+dwell (~6-7s): la finestra parte a 8s
+# dall'evento per campionare l'andatura stabile, non la transizione in corso.
+_CLASS_WINDOW_LAG_S = 8
+_CLASS_WINDOW_LEN_S = 12
+
+# Log diagnostico: attivare con env var VAREA_DEBUG_MANEUVERS=1 prima di
+# lanciare api.py / main.py / streamlit. Stampa una riga per manovra con
+# i segnali usati dal voto di classificazione.
+_DEBUG_CLASS = os.environ.get('VAREA_DEBUG_MANEUVERS', '').strip() == '1'
+
 
 class ManeuverAnalyzer:
     """
@@ -8,12 +21,83 @@ class ManeuverAnalyzer:
     di efficienza (Delta V, TTR Dinamico al 50% e Durata Totale).
     """
     
-    def __init__(self, min_leg_time: int = 15):
-        self.min_leg_time = min_leg_time 
+    def __init__(self, min_leg_time: int = 15,
+                 hysteresis_deg: float = 7.0,
+                 smooth_window_s: int = 5,
+                 dwell_samples: int = 4):
+        self.min_leg_time = min_leg_time
+        self.hysteresis_deg = hysteresis_deg
+        self.smooth_window_s = smooth_window_s
+        self.dwell_samples = dwell_samples
 
     @staticmethod
     def angular_diff(a, b):
         return (a - b + 180) % 360 - 180
+
+    def _compute_stable_mure(self, twa_signed: pd.Series) -> pd.Series:
+        """
+        Calcola la mure (tack) stabile robusta al rumore del vento.
+
+        Tre difese in cascata:
+        1. Rolling median (smooth_window_s secondi, centrata): rimuove spike
+           impulsivi senza lag di un filtro media. Efficace anche vicino a
+           TWA=±180 dove il wrap-around genera sequenze tipo [+179,-179,+179]:
+           la mediana resta stabile mentre un filtro medio fallisce.
+        2. Schmitt trigger con banda morta ±hysteresis_deg: per passare da
+           mure=+1 a mure=-1 il segnale smussato deve scendere sotto -H
+           (e viceversa). Dentro la banda |twa|<H si mantiene lo stato corrente:
+           elimina il bouncing di segno attorno a TWA=0 (bolina stretta).
+        3. Dwell filter (dwell_samples secondi consecutivi nel nuovo stato):
+           conferma il flip solo se la nuova mure persiste. Immunizza contro
+           i rollii lenti delle strambate in dislocamento dove TWA attraversa
+           lo zero, torna indietro per onda, e riattraversa.
+        """
+        # 1. Rolling median: robusta a spike e al wrap angolare
+        twa_smooth = twa_signed.rolling(
+            window=self.smooth_window_s, center=True, min_periods=1
+        ).median()
+
+        values = twa_smooth.to_numpy()
+        n = len(values)
+        mure = np.zeros(n, dtype=int)
+
+        # Stato iniziale: segno della mediana dei primi campioni (già smussati)
+        current_mure = 1 if values[0] >= 0 else -1
+        mure[0] = current_mure
+
+        candidate_mure = current_mure
+        dwell_count = 0
+        H = self.hysteresis_deg
+
+        # 2+3. Schmitt trigger con dwell filter
+        for i in range(1, n):
+            v = values[i]
+            if v > H:
+                proposed = 1
+            elif v < -H:
+                proposed = -1
+            else:
+                # Dentro banda morta: mantieni stato corrente, azzera candidato
+                proposed = current_mure
+
+            if proposed == current_mure:
+                candidate_mure = current_mure
+                dwell_count = 0
+            else:
+                # Proposta di flip: accumula dwell solo se coerente
+                if proposed == candidate_mure:
+                    dwell_count += 1
+                else:
+                    candidate_mure = proposed
+                    dwell_count = 1
+                # Conferma il cambio solo dopo dwell_samples secondi consecutivi
+                if dwell_count >= self.dwell_samples:
+                    current_mure = proposed
+                    dwell_count = 0
+
+            mure[i] = current_mure
+
+        return pd.Series(mure, index=twa_signed.index)
 
     def tag_points_of_sail(self, df: pd.DataFrame, twd_series: pd.Series) -> pd.DataFrame:
         twa_abs = self.angular_diff(df['cog_deg'], twd_series).abs()
@@ -35,7 +119,10 @@ class ManeuverAnalyzer:
         df['cum_dist_nm'] = (df['sog_knots'] / 3600).cumsum()
         
         df['twa_signed'] = self.angular_diff(df['cog_deg'], twd_series)
-        df['mure'] = np.where(df['twa_signed'] >= 0, 1, -1)
+        # Mure stabile: rolling median + Schmitt trigger + dwell filter.
+        # Rimpiazza il precedente np.where(twa_signed >= 0, 1, -1) che era
+        # fragile vicino a TWA=0 (bolina) e TWA=±180 (poppa piena).
+        df['mure'] = self._compute_stable_mure(df['twa_signed'])
         df['cambio_mure'] = df['mure'].diff().fillna(0) != 0
 
         change_indices = df.index[df['cambio_mure']].tolist()
@@ -49,8 +136,104 @@ class ManeuverAnalyzer:
             if i - last_man_idx < self.min_leg_time:
                 continue
                 
-            twa_momentaneo = abs(df['twa_signed'].iloc[i-1])
-            m_type = "Virata" if twa_momentaneo < 90 else "Strambata"
+            # Classificazione robusta: voto a maggioranza su 4 segnali
+            # indipendenti (TWA pre, TWA post, andatura pre, andatura post).
+            # Disaccoppia la decisione da un singolo valore di TWD che può
+            # essere mal stimato localmente — con 4 segnali serve che almeno
+            # 3 convergano sull'etichetta sbagliata per confondere il voto.
+            pre_lo = max(0, i - _CLASS_WINDOW_LAG_S - _CLASS_WINDOW_LEN_S)
+            pre_hi = max(0, i - _CLASS_WINDOW_LAG_S)
+            post_lo = min(len(df), i + _CLASS_WINDOW_LAG_S)
+            post_hi = min(len(df), i + _CLASS_WINDOW_LAG_S + _CLASS_WINDOW_LEN_S)
+
+            twa_abs_series = df['twa_signed'].abs()
+            andatura_series = df['andatura']
+            pre_twa = twa_abs_series.iloc[pre_lo:pre_hi]
+            post_twa = twa_abs_series.iloc[post_lo:post_hi]
+            pre_and = andatura_series.iloc[pre_lo:pre_hi]
+            post_and = andatura_series.iloc[post_lo:post_hi]
+
+            # Firma fisica del crossing: durante una virata twa_signed attraversa
+            # 0° (prua nel vento), durante una strambata attraversa ±180° (poppa
+            # nel vento). Cerco il crossing in una finestra centrata sul momento
+            # fisico (i - lag_filtro_schmitt ≈ i-6), allargata: [i-15, i+5].
+            #
+            # Non uso min/max: un solo sample spurio (glitch COG da diff GPS
+            # su frame quasi fermi, o salto di interpolazione TWD) farebbe
+            # scattare la firma. Conto invece quanti sample cadono nelle bande
+            # 0-30° e 150-180° e richiedo ≥3 sample (3 secondi a 1Hz) perché
+            # sia un vero passaggio, con ≤1 sample nella banda opposta.
+            cross_lo = max(0, i - 15)
+            cross_hi = min(len(df), i + 5)
+            cross_window = twa_abs_series.iloc[cross_lo:cross_hi]
+            cross_min = float(cross_window.min()) if len(cross_window) else float('nan')
+            cross_max = float(cross_window.max()) if len(cross_window) else float('nan')
+            count_near_zero = int((cross_window < 30).sum())
+            count_near_pi = int((cross_window > 150).sum())
+
+            votes: List[str] = []
+
+            # Voti 1-2: mediana di |TWA| pre e post (soglia 90°)
+            if len(pre_twa) >= 4:
+                votes.append('Virata' if float(pre_twa.median()) < 90 else 'Strambata')
+            if len(post_twa) >= 4:
+                votes.append('Virata' if float(post_twa.median()) < 90 else 'Strambata')
+
+            # Voti 3-4: andatura prevalente pre/post (Traverso astensione)
+            for window in (pre_and, post_and):
+                if len(window) == 0:
+                    continue
+                bolina = int((window == 'Bolina').sum())
+                poppa = int((window == 'Lasco/Poppa').sum())
+                if bolina > poppa:
+                    votes.append('Virata')
+                elif poppa > bolina:
+                    votes.append('Strambata')
+
+            # Voti 5-6: firma fisica del crossing (peso doppio, più diretta).
+            # Soglia asimmetrica: la banda a 150-180° è più rumorosa della banda
+            # a 0-30° per tre motivi — wrap-around di angular_diff vicino a ±180°,
+            # COG-glitch quando la barca rallenta (diff GPS instabile), e
+            # interpolazione TWD lineare attraverso cambio ora Stormglass.
+            # Quindi:
+            # - Virata: ≥1 sample a |TWA|<30° con ≤1 sample a |TWA|>150° (il
+            #   singolo outlier alto è tollerato come rumore di wrap/glitch).
+            # - Strambata: ≥3 sample a |TWA|>150° con ≤1 a |TWA|<30° (serve un
+            #   passaggio persistente, non un glitch isolato).
+            if len(cross_window) >= 5:
+                if count_near_zero >= 1 and count_near_pi <= 1:
+                    votes.extend(['Virata', 'Virata'])
+                elif count_near_pi >= 3 and count_near_zero <= 1:
+                    votes.extend(['Strambata', 'Strambata'])
+
+            virate_n = votes.count('Virata')
+            strambata_n = votes.count('Strambata')
+
+            if virate_n > strambata_n:
+                m_type = 'Virata'
+            elif strambata_n > virate_n:
+                m_type = 'Strambata'
+            else:
+                # Pareggio o nessun voto: fallback al sample immediato
+                m_type = 'Virata' if abs(float(df['twa_signed'].iloc[i-1])) < 90 else 'Strambata'
+
+            if _DEBUG_CLASS:
+                pre_med = float(pre_twa.median()) if len(pre_twa) else float('nan')
+                post_med = float(post_twa.median()) if len(post_twa) else float('nan')
+                pre_b = int((pre_and == 'Bolina').sum())
+                pre_p = int((pre_and == 'Lasco/Poppa').sum())
+                post_b = int((post_and == 'Bolina').sum())
+                post_p = int((post_and == 'Lasco/Poppa').sum())
+                print(
+                    f"[maneuvers] i={i} ts={idx_timestamp} "
+                    f"twa_pre={pre_med:.1f} twa_post={post_med:.1f} "
+                    f"cross_min={cross_min:.1f} cross_max={cross_max:.1f} "
+                    f"n_low={count_near_zero} n_high={count_near_pi} "
+                    f"and_pre=B{pre_b}/P{pre_p}/tot{len(pre_and)} "
+                    f"and_post=B{post_b}/P{post_p}/tot{len(post_and)} "
+                    f"votes={votes} -> {m_type}",
+                    flush=True,
+                )
             
             # 1. CERCHIAMO IL VERO MINIMO
             search_start = max(0, i - 2)
