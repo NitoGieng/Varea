@@ -3,10 +3,44 @@ import ManeuverFootprint from '../components/charts/ManeuverFootprint';
 import TelemetryMap from '../components/charts/TelemetryMap';
 import Maneuvers from './Maneuvers';
 import StartAnalysis from './StartAnalysis'; // IL NUOVO COMPONENTE
+import type { SessionData, AnalyzeResponse } from '../types/telemetry';
+import { assignColor } from '../data/palette';
 
 export default function Dashboard() {
-  const [telemetryData, setTelemetryData] = useState<any>(null);
+  // Stato multi-sessione. Un caricamento singolo produce un array di 1
+  // elemento: il comportamento single-player resta identico. Gli step
+  // successivi aggiungeranno upload multiplo e viste sovrapposte.
+  const [sessions, setSessions] = useState<SessionData[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+
+  // Sessione pilota per le viste che non sono ancora multi-atleta (tutte
+  // per ora: overview header, StartAnalysis, Lab). Gli step 4-7 rimuoveranno
+  // questa dipendenza componente per componente.
+  const primarySession = useMemo(() => {
+    if (sessions.length === 0) return null;
+    if (activeSessionId) {
+      const found = sessions.find(s => s.id === activeSessionId);
+      if (found) return found;
+    }
+    return sessions[0];
+  }, [sessions, activeSessionId]);
+
+  // Shim temporaneo: ricostruisce la vecchia forma {session_info, ...} da
+  // primarySession così il resto del componente (filtri, memo, rendering)
+  // resta invariato in questo step. Verrà rimosso quando ogni vista saprà
+  // consumare direttamente sessions[].
+  const telemetryData = useMemo(() => {
+    if (!primarySession || primarySession.status !== 'ready') return null;
+    if (!primarySession.sessionInfo || !primarySession.environment) return null;
+    return {
+      session_info: primarySession.sessionInfo,
+      environment: primarySession.environment,
+      track_data: primarySession.trackData ?? [],
+      high_res_track: primarySession.highResTrack ?? [],
+      maneuvers: primarySession.maneuvers ?? [],
+    };
+  }, [primarySession]);
   
   // Aggiunto 'start' come possibile vista
   const [currentView, setCurrentView] = useState<'overview' | 'maneuvers' | 'lab' | 'start'>('overview');
@@ -200,8 +234,30 @@ export default function Dashboard() {
       const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
       const response = await fetch(`${apiUrl}/api/analyze`, { method: "POST", body: formData });
       if (!response.ok) throw new Error("Errore durante l'analisi del file");
-      const data = await response.json();
-      setTelemetryData(data);
+      const data: AnalyzeResponse = await response.json();
+
+      const id = (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
+        ? crypto.randomUUID()
+        : `sess-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const color = assignColor([]);
+      const newSession: SessionData = {
+        id,
+        fileName: file.name,
+        label: file.name.replace(/\.(fit|csv)$/i, ''),
+        color,
+        visible: true,
+        status: 'ready',
+        sessionInfo: data.session_info,
+        environment: data.environment,
+        trackData: data.track_data,
+        highResTrack: data.high_res_track,
+        maneuvers: data.maneuvers,
+      };
+
+      // Step 1: caricamento singolo rimpiazza l'array. Lo step 2 renderà
+      // l'upload additivo (N file in parallelo, sidebar con elenco).
+      setSessions([newSession]);
+      setActiveSessionId(id);
     } catch (error) {
       alert("Errore di caricamento: assicurati che il server Python sia acceso.");
     } finally {
