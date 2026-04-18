@@ -38,46 +38,62 @@ class ManeuverAnalyzer:
         """
         Calcola la mure (tack) stabile robusta al rumore del vento.
 
-        Tre difese in cascata:
-        1. Rolling median (smooth_window_s secondi, centrata): rimuove spike
-           impulsivi senza lag di un filtro media. Efficace anche vicino a
-           TWA=±180 dove il wrap-around genera sequenze tipo [+179,-179,+179]:
-           la mediana resta stabile mentre un filtro medio fallisce.
-        2. Schmitt trigger con banda morta ±hysteresis_deg: per passare da
-           mure=+1 a mure=-1 il segnale smussato deve scendere sotto -H
-           (e viceversa). Dentro la banda |twa|<H si mantiene lo stato corrente:
-           elimina il bouncing di segno attorno a TWA=0 (bolina stretta).
-        3. Dwell filter (dwell_samples secondi consecutivi nel nuovo stato):
-           conferma il flip solo se la nuova mure persiste. Immunizza contro
-           i rollii lenti delle strambate in dislocamento dove TWA attraversa
-           lo zero, torna indietro per onda, e riattraversa.
-        """
-        # 1. Rolling median: robusta a spike e al wrap angolare
-        twa_smooth = twa_signed.rolling(
-            window=self.smooth_window_s, center=True, min_periods=1
-        ).median()
+        Tre difese in cascata, tutte su rappresentazione circolare per non
+        rompersi a poppa piena (|TWA|≈180°):
 
-        values = twa_smooth.to_numpy()
-        n = len(values)
+        1. Media circolare (smooth_window_s secondi, centrata). Invece di
+           mediana/media su numeri, che tratta +179° e -179° come estremi
+           opposti e oscilla al wrap, passa per sin/cos: smooth(twa) =
+           atan2(mean(sin(twa)), mean(cos(twa))). E' l'unica media che
+           rispetta la topologia del cerchio: per una sequenza a poppa
+           piena [+179,-179,+179,-179] restituisce ~±180° stabile invece
+           che alternare tra +179° e -179°.
+
+        2. Schmitt trigger su sin(twa_smoothed). La mure e' sign(sin(TWA)):
+           positivo = mura dritta, negativo = mura sinistra. La banda morta
+           |sin(twa)| < sin(H°) e' intrinsecamente simmetrica — attiva sia
+           quando TWA e' vicino a 0° (bolina) sia quando e' vicino a ±180°
+           (poppa piena). Il vecchio Schmitt su TWA grezza aveva banda solo
+           attorno a 0°, lasciando poppa piena scoperta — l'origine delle
+           "manovre fantasma" in downwind.
+
+        3. Dwell filter (dwell_samples secondi consecutivi nel nuovo stato):
+           conferma il flip solo se la nuova mure persiste. Immunizza
+           contro i rollii lenti delle strambate dove TWA attraversa lo
+           zero/i±180, torna indietro per onda, e riattraversa.
+        """
+        # 1. Media circolare: robusta al wrap angolare ±180°
+        theta = np.radians(twa_signed.to_numpy())
+        sin_s = pd.Series(np.sin(theta), index=twa_signed.index)
+        cos_s = pd.Series(np.cos(theta), index=twa_signed.index)
+        win = self.smooth_window_s
+        sin_smooth = sin_s.rolling(window=win, center=True, min_periods=1).mean().to_numpy()
+        cos_smooth = cos_s.rolling(window=win, center=True, min_periods=1).mean().to_numpy()
+
+        n = len(sin_smooth)
         mure = np.zeros(n, dtype=int)
 
-        # Stato iniziale: segno della mediana dei primi campioni (già smussati)
-        current_mure = 1 if values[0] >= 0 else -1
+        # Soglia della banda morta sul piano sin. sin(H°) e' naturalmente
+        # simmetrica: |sin(twa)|<sin(H) attiva la banda a TWA∈(-H,H) e anche
+        # a TWA∈(180-H,180)∪(-180,-180+H). Con H=7° la soglia e' ~0.122.
+        sin_H = float(np.sin(np.radians(self.hysteresis_deg)))
+
+        # Stato iniziale: segno del sin della prima media circolare
+        current_mure = 1 if sin_smooth[0] >= 0 else -1
         mure[0] = current_mure
 
         candidate_mure = current_mure
         dwell_count = 0
-        H = self.hysteresis_deg
 
-        # 2+3. Schmitt trigger con dwell filter
+        # 2+3. Schmitt trigger simmetrico + dwell filter
         for i in range(1, n):
-            v = values[i]
-            if v > H:
+            s = sin_smooth[i]
+            if s > sin_H:
                 proposed = 1
-            elif v < -H:
+            elif s < -sin_H:
                 proposed = -1
             else:
-                # Dentro banda morta: mantieni stato corrente, azzera candidato
+                # Dentro banda morta (vicino a 0° O a ±180°): mantieni stato
                 proposed = current_mure
 
             if proposed == current_mure:
