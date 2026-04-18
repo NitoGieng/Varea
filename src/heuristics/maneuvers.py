@@ -9,6 +9,19 @@ from typing import List, Dict, Any
 _CLASS_WINDOW_LAG_S = 8
 _CLASS_WINDOW_LEN_S = 12
 
+# Sanity-gate fisica sul Δ-COG: un flip di mure senza reale rotazione della
+# prua non e' una manovra, e' il TWD che oscilla attorno a un COG costante.
+# Una virata reale ha Δcog≈70-90°, una strambata ≈80-100°. Soglia a 45°
+# scarta rumore lasciando ampio margine al caso "manovra piccola in wave".
+# Le finestre pre/post [i-10,i-5] e [i+5,i+10] sono 5s ciascuna a 1Hz: stanno
+# fuori dal cono del turno stesso (dove il COG ruota) ma vicine abbastanza
+# da campionare la direzione di rotta effettiva prima e dopo.
+_COG_GATE_DEG = 45.0
+_COG_PRE_LO = 10
+_COG_PRE_HI = 5
+_COG_POST_LO = 5
+_COG_POST_HI = 10
+
 # Log diagnostico: attivare con env var VAREA_DEBUG_MANEUVERS=1 prima di
 # lanciare api.py / main.py / streamlit. Stampa una riga per manovra con
 # i segnali usati dal voto di classificazione.
@@ -33,6 +46,14 @@ class ManeuverAnalyzer:
     @staticmethod
     def angular_diff(a, b):
         return (a - b + 180) % 360 - 180
+
+    @staticmethod
+    def _circular_mean_deg(values_deg: np.ndarray) -> float:
+        """Media di angoli in gradi, sicura al wrap ±180° via atan2(sin, cos)."""
+        if len(values_deg) == 0:
+            return float('nan')
+        rad = np.radians(values_deg)
+        return float(np.degrees(np.arctan2(np.mean(np.sin(rad)), np.mean(np.cos(rad)))))
 
     def _compute_stable_mure(self, twa_signed: pd.Series) -> pd.Series:
         """
@@ -151,7 +172,39 @@ class ManeuverAnalyzer:
             
             if i - last_man_idx < self.min_leg_time:
                 continue
-                
+
+            # Sanity-gate fisica: una manovra reale ruota il COG di ≥45°.
+            # Un flip di mure senza rotazione del COG (Δcog piccolo) e' sempre
+            # TWD che oscilla attorno a un COG stabile, non una manovra vera.
+            # Senza questo gate, anche con il filtro mure blindato, un TWD
+            # rumoroso a poppa piena o vicino al wrap giornaliero 350°/10°
+            # puo' generare flip geometricamente corretti ma fisicamente
+            # assurdi. Taglio qui prima della classificazione, che e' costosa.
+            pre_cog_lo = max(0, i - _COG_PRE_LO)
+            pre_cog_hi = max(0, i - _COG_PRE_HI)
+            post_cog_lo = min(len(df), i + _COG_POST_LO)
+            post_cog_hi = min(len(df), i + _COG_POST_HI)
+            pre_cog_win = df['cog_deg'].iloc[pre_cog_lo:pre_cog_hi].to_numpy()
+            post_cog_win = df['cog_deg'].iloc[post_cog_lo:post_cog_hi].to_numpy()
+
+            # Richiedo entrambe le finestre piene: a inizio/fine sessione il
+            # gate non puo' essere applicato e accetto la manovra (preserva
+            # backward compat su file corti / manovre ai bordi). Una finestra
+            # monca tenderebbe a sottostimare il Δcog rendendo il gate ostile.
+            if len(pre_cog_win) >= 3 and len(post_cog_win) >= 3:
+                pre_cog = self._circular_mean_deg(pre_cog_win)
+                post_cog = self._circular_mean_deg(post_cog_win)
+                delta_cog = abs(self.angular_diff(post_cog, pre_cog))
+                if delta_cog < _COG_GATE_DEG:
+                    if _DEBUG_CLASS:
+                        print(
+                            f"[maneuvers] i={i} ts={idx_timestamp} "
+                            f"SCARTATA: Δcog={delta_cog:.1f}° < {_COG_GATE_DEG}° "
+                            f"(pre={pre_cog:.1f}° post={post_cog:.1f}°)",
+                            flush=True,
+                        )
+                    continue
+
             # Classificazione robusta: voto a maggioranza su 4 segnali
             # indipendenti (TWA pre, TWA post, andatura pre, andatura post).
             # Disaccoppia la decisione da un singolo valore di TWD che può
