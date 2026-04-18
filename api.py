@@ -147,9 +147,34 @@ async def analyze_fit_file(file: UploadFile = File(...)):
 
         # --- FASE 3: CALCOLO VENTO DINAMICO ---
         print("3/4 Generazione Curva Vento Dinamica...")
-        if api_twd_list and len(api_twd_list) > 0: 
-            twd_points = np.linspace(api_twd_list[0], api_twd_list[-1], len(df))
-            df['twd_dynamic'] = twd_points
+        if api_twd_list and len(api_twd_list) > 0:
+            api_arr = np.asarray(api_twd_list, dtype=float)
+            if len(api_arr) == 1:
+                # Singola ora Stormglass: TWD costante su tutta la sessione.
+                df['twd_dynamic'] = float(api_arr[0])
+            else:
+                # Interpolazione tempo-indicizzata con unwrap circolare. Il
+                # vecchio np.linspace(first, last, N) ignorava tutti i valori
+                # orari intermedi e — peggio — interpolava linearmente sui
+                # gradi grezzi: se il TWD passa da 350° a 10° (rotazione
+                # oraria di +20°) produceva -340° su tutta la sessione,
+                # falsando ogni TWA a valle e generando manovre fantasma
+                # quando il COG costante veniva confrontato col TWD ruotato.
+                # unwrap+interp+wrap e' l'unica interpolazione stabile sul
+                # cerchio (stesso pattern usato sotto nel ramo GPS-only).
+                # Le N ore di Stormglass sono uniformi su [start_ts, end_ts]
+                # per approssimazione: sufficiente per interpolare a 1Hz
+                # sulle decine/centinaia di minuti tipiche della sessione.
+                api_times = np.linspace(start_ts, end_ts, len(api_arr))
+                api_rad_unwrapped = np.unwrap(np.radians(api_arr))
+                # Converti l'indice a epoch-seconds int64. Passare per
+                # datetime64[s] evita la dipendenza dall'unita' interna di
+                # DatetimeIndex: in pandas 3.x astype('int64') diretto
+                # produrrebbe microsecondi invece di nanosecondi, rompendo
+                # l'interpolazione silenziosamente.
+                df_times = df.index.values.astype('datetime64[s]').astype('int64')
+                twd_interp_rad = np.interp(df_times, api_times, api_rad_unwrapped)
+                df['twd_dynamic'] = np.degrees(twd_interp_rad) % 360
         else:
             df['twd_dynamic'] = np.nan
             try:
