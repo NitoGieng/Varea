@@ -1,16 +1,32 @@
 import React, { useState, useMemo } from 'react';
 import ManeuverSpeedChart from './ManeuverSpeedChart';
+import type { Maneuver, TrackPoint, HighResPoint } from '../../types/telemetry';
+
+// Una "lab session": tutto cio' che serve al footprint per un atleta.
+// trackData e' la traccia per il disegno geometrico (0.2Hz va bene, e' quello
+// che il vecchio Lab usava gia'); highResTrack e' per il grafico SOG a 1Hz.
+export interface LabSession {
+  id: string;
+  label: string;
+  color: string;
+  maneuvers: Maneuver[];
+  trackData: TrackPoint[];
+  highResTrack: HighResPoint[];
+}
 
 interface ManeuverFootprintProps {
-  maneuvers: any[];
-  trackData: any[];
-  highResTrack: any[];
+  sessions: LabSession[];
 }
+
+// Costante modulo: fallback stabile per l'highResTrack quando non c'e'
+// una sessione attiva. Usare `?? []` inline romperebbe la stabilita' di
+// riferimento tra render e farebbe partire memo a cascata.
+const EMPTY_HIGH_RES: HighResPoint[] = [];
 
 // --- REGOLE FOILING SEMPLIFICATE (FLY vs TOUCH) ---
 const getFoilingStatus = (type: string, sogMin: number) => {
   const isTack = type.toLowerCase().includes('virata');
-  
+
   if (isTack) {
     if (sogMin >= 8.5) return { label: 'FLY', color: 'text-[#10b981]', bg: 'bg-[#10b981]/10', border: 'border-[#10b981]/30' };
     return { label: 'TOUCH', color: 'text-[#f59e0b]', bg: 'bg-[#f59e0b]/10', border: 'border-[#f59e0b]/30' };
@@ -21,30 +37,53 @@ const getFoilingStatus = (type: string, sogMin: number) => {
   }
 };
 
-export default function ManeuverFootprint({ maneuvers, trackData, highResTrack }: ManeuverFootprintProps) {
+export default function ManeuverFootprint({ sessions }: ManeuverFootprintProps) {
   const [mode, setMode] = useState<'FLY' | 'TOUCH'>('FLY');
   const [selectedIndex, setSelectedIndex] = useState(0);
   // Secondi relativi al cambio mura: sincronizza il grafico SOG con l'icona
   // barca nel footprint. null = mouse fuori dal grafico.
   const [hoveredTime, setHoveredTime] = useState<number | null>(null);
+  // Atleta selezionato nel Lab. In single-session resta sempre al primo;
+  // se l'atleta corrente scompare (toggle visibilita' / rimozione) si
+  // ricade sul primo disponibile via derivazione, non via effect.
+  const [selectedAthleteId, setSelectedAthleteId] = useState<string | null>(null);
+
+  const isMulti = sessions.length > 1;
+
+  // Derivazione robusta dell'atleta attivo: evita di inseguire il cambiamento
+  // di sessions[] con effect (cascading renders). Se l'id salvato non esiste
+  // piu' nel set corrente, ricade silenziosamente sul primo.
+  const activeSession = useMemo(() => {
+    if (sessions.length === 0) return null;
+    const found = sessions.find(s => s.id === selectedAthleteId);
+    return found ?? sessions[0];
+  }, [sessions, selectedAthleteId]);
+
+  // Sorgenti dati dell'atleta attivo, riferite direttamente da activeSession
+  // per evitare ref instabili (`?? []` genererebbe array nuovi ad ogni render
+  // e invaliderebbe i dep array dei memo a valle).
+  const highResTrack = activeSession?.highResTrack ?? EMPTY_HIGH_RES;
 
   // --- 1. FILTRAGGIO E ORDINAMENTO FOILING ---
   const sortedManeuvers = useMemo(() => {
-    if (!maneuvers || maneuvers.length === 0) return [];
-    
-    return [...maneuvers]
+    const ms = activeSession?.maneuvers;
+    if (!ms || ms.length === 0) return [];
+
+    return [...ms]
       .filter(m => {
         const status = getFoilingStatus(m.type, Number(m.sog_min));
         return status.label === mode;
       })
-      // Ordiniamo in base alla velocità minima: 
+      // Ordiniamo in base alla velocità minima:
       // Se cerchiamo i FLY, mettiamo in cima quelli più veloci (i migliori in assoluto).
       // Se cerchiamo i TOUCH, mettiamo in cima quelli più lenti (i peggiori da analizzare).
-      .sort((a, b) => mode === 'FLY' ? b.sog_min - a.sog_min : a.sog_min - b.sog_min);
-  }, [maneuvers, mode]);
+      .sort((a, b) => mode === 'FLY' ? Number(b.sog_min) - Number(a.sog_min) : Number(a.sog_min) - Number(b.sog_min));
+  }, [activeSession, mode]);
 
-  React.useEffect(() => { setSelectedIndex(0); }, [mode]);
-  React.useEffect(() => { setHoveredTime(null); }, [selectedIndex, mode]);
+  // Reset selezione quando cambia mode o atleta: la lista puo' avere
+  // lunghezza diversa e indici non comparabili tra cataloghi diversi.
+  React.useEffect(() => { setSelectedIndex(0); }, [mode, activeSession?.id]);
+  React.useEffect(() => { setHoveredTime(null); }, [selectedIndex, mode, activeSession?.id]);
 
   const activeManeuver = sortedManeuvers[selectedIndex];
   const activeStatus = activeManeuver ? getFoilingStatus(activeManeuver.type, Number(activeManeuver.sog_min)) : null;
@@ -55,13 +94,14 @@ export default function ManeuverFootprint({ maneuvers, trackData, highResTrack }
       const date = new Date(ts.replace(' ', 'T'));
       if (isNaN(date.getTime())) return ts;
       return date.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    } catch (e) {
+    } catch {
       return ts;
     }
   };
 
   // --- 2. MOTORE GEOMETRICO BLINDATO E ALLINEATO ---
   const renderData = useMemo(() => {
+    const trackData = activeSession?.trackData;
     if (!activeManeuver || !trackData || trackData.length === 0) return null;
 
     let centerIdx = -1;
@@ -88,8 +128,8 @@ export default function ManeuverFootprint({ maneuvers, trackData, highResTrack }
 
     const start = Math.max(0, centerIdx - 15);
     const end = Math.min(trackData.length - 1, centerIdx + 25);
-    
-    const validSegment = trackData.slice(start, end).filter(p => 
+
+    const validSegment = trackData.slice(start, end).filter(p =>
       p != null && p.lat != null && p.lon != null && !isNaN(Number(p.lat)) && !isNaN(Number(p.lon))
     );
 
@@ -98,14 +138,14 @@ export default function ManeuverFootprint({ maneuvers, trackData, highResTrack }
     const R = 6371000;
     const refLat = Number(validSegment[0].lat);
     const refLon = Number(validSegment[0].lon);
-    const entryCog = Number(validSegment[0].cog_deg) || 0; 
+    const entryCog = Number(validSegment[0].cog_deg) || 0;
 
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
 
     const points = validSegment.map((p) => {
       const lat = Number(p.lat);
       const lon = Number(p.lon);
-      
+
       const x_m = (lon - refLon) * (Math.PI / 180) * R * Math.cos(refLat * Math.PI / 180);
       const y_m = (lat - refLat) * (Math.PI / 180) * R;
 
@@ -122,10 +162,10 @@ export default function ManeuverFootprint({ maneuvers, trackData, highResTrack }
 
       const sog = Number(p.sog_knots) || 0;
 
-      return { 
-        x: x_rot, y: y_rot, sog, 
-        isCenter: p === validSegment[Math.floor(validSegment.length/2)],
-        lat, lon, time: p.timestamp 
+      return {
+        x: x_rot, y: y_rot, sog,
+        isCenter: p === validSegment[Math.floor(validSegment.length / 2)],
+        lat, lon, time: p.timestamp
       };
     }).filter(p => !isNaN(p.x) && !isNaN(p.y));
 
@@ -141,7 +181,7 @@ export default function ManeuverFootprint({ maneuvers, trackData, highResTrack }
       const nextP = points[safeTurnIndex + 1];
       const dx = nextP.x - prevP.x;
       const dy = nextP.y - prevP.y;
-      visualHeading = (Math.atan2(dy, dx) * (180 / Math.PI)) + 90; 
+      visualHeading = (Math.atan2(dy, dx) * (180 / Math.PI)) + 90;
     }
 
     if (minX === Infinity) minX = -50;
@@ -151,27 +191,27 @@ export default function ManeuverFootprint({ maneuvers, trackData, highResTrack }
 
     const width = maxX - minX;
     const height = maxY - minY;
-    const maxDim = Math.max(width, height, 80); 
+    const maxDim = Math.max(width, height, 80);
     const cx = (minX + maxX) / 2;
     const cy = (minY + maxY) / 2;
-    const padding = maxDim * 0.4; 
-    
+    const padding = maxDim * 0.4;
+
     if (isNaN(cx) || isNaN(cy) || isNaN(maxDim)) return null;
 
-    const viewBox = `${cx - maxDim/2 - padding} ${cy - maxDim/2 - padding} ${maxDim + padding*2} ${maxDim + padding*2}`;
-    const baseStroke = (maxDim + padding * 2) / 120; 
-    
+    const viewBox = `${cx - maxDim / 2 - padding} ${cy - maxDim / 2 - padding} ${maxDim + padding * 2} ${maxDim + padding * 2}`;
+    const baseStroke = (maxDim + padding * 2) / 120;
+
     // Solo Verde (Fly) o Arancione (Touch)
     const traceColor = activeStatus?.label === 'FLY' ? '#10b981' : '#f59e0b';
 
-    return { 
-      points, 
-      viewBox, 
-      turnPoint: { ...turnPoint, visualHeading }, 
-      color: traceColor, 
-      baseStroke 
+    return {
+      points,
+      viewBox,
+      turnPoint: { ...turnPoint, visualHeading },
+      color: traceColor,
+      baseStroke
     };
-  }, [activeManeuver, trackData, mode, activeStatus]);
+  }, [activeManeuver, activeSession, activeStatus]);
 
   // Posizione interpolata dell'icona barca in base al tempo hover dal chart.
   // Scorre linearmente tra due punti consecutivi del footprint (trackData 0.2Hz)
@@ -201,18 +241,58 @@ export default function ManeuverFootprint({ maneuvers, trackData, highResTrack }
     return null;
   }, [hoveredTime, renderData, activeManeuver]);
 
+  if (sessions.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-full bg-white text-xs text-gray-400 uppercase tracking-widest">
+        Nessuna sessione visibile
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-full bg-white">
+      {/* SELETTORE ATLETA — visibile solo in multi-sessione, a monte di tutto */}
+      {isMulti && (
+        <div className="px-4 py-2 border-b border-gray-100 bg-white flex items-center gap-3 overflow-x-auto">
+          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest shrink-0">Atleta</span>
+          <div className="flex gap-2">
+            {sessions.map(s => {
+              const isActive = activeSession?.id === s.id;
+              return (
+                <button
+                  key={s.id}
+                  onClick={() => setSelectedAthleteId(s.id)}
+                  className={`px-3 py-1.5 text-xs font-bold uppercase tracking-widest rounded border transition-colors flex items-center gap-2 shrink-0 ${
+                    isActive
+                      ? 'bg-navy-900 text-white border-navy-900'
+                      : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'
+                  }`}
+                >
+                  <span
+                    className="inline-block w-2.5 h-2.5 rounded-full"
+                    style={{ backgroundColor: s.color }}
+                  />
+                  {s.label}
+                  <span className="text-[9px] font-mono opacity-60">
+                    {s.maneuvers.length}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* HEADER CONTROLLI */}
       <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
         <div className="flex bg-white border border-gray-200 rounded p-1">
-          <button 
+          <button
             onClick={() => setMode('FLY')}
             className={`px-4 py-2 text-xs font-bold uppercase tracking-widest rounded transition-colors flex items-center gap-2 ${mode === 'FLY' ? 'bg-[#10b981] text-white shadow-sm' : 'text-gray-400 hover:bg-gray-50'}`}
           >
             <span>🟢</span> Manovre Fly
           </button>
-          <button 
+          <button
             onClick={() => setMode('TOUCH')}
             className={`px-4 py-2 text-xs font-bold uppercase tracking-widest rounded transition-colors flex items-center gap-2 ${mode === 'TOUCH' ? 'bg-[#f59e0b] text-white shadow-sm' : 'text-gray-400 hover:bg-gray-50'}`}
           >
@@ -233,13 +313,13 @@ export default function ManeuverFootprint({ maneuvers, trackData, highResTrack }
             sortedManeuvers.map((m, i) => {
               const status = getFoilingStatus(m.type, Number(m.sog_min));
               return (
-                <button 
-                  key={i} 
+                <button
+                  key={i}
                   onClick={() => setSelectedIndex(i)}
                   className={`w-full p-5 text-left transition-colors relative ${selectedIndex === i ? 'bg-navy-50' : 'hover:bg-gray-50'}`}
                 >
                   {selectedIndex === i && <div className={`absolute left-0 top-0 w-1.5 h-full`} style={{ backgroundColor: renderData?.color }}></div>}
-                  
+
                   <div className="flex justify-between items-start mb-2">
                     <div className="flex items-center gap-2">
                       <div className="text-sm font-bold text-navy-900 uppercase tracking-widest">{m.type}</div>
@@ -249,7 +329,7 @@ export default function ManeuverFootprint({ maneuvers, trackData, highResTrack }
                       </span>
                     </div>
                   </div>
-                  
+
                   <div className="grid grid-cols-2 gap-2 mb-2">
                     <div className="bg-white border border-gray-100 rounded p-1.5 text-center shadow-sm">
                       <div className="text-[9px] text-gray-400 uppercase tracking-widest">Vel Min</div>
@@ -257,8 +337,8 @@ export default function ManeuverFootprint({ maneuvers, trackData, highResTrack }
                     </div>
                     <div className="bg-white border border-gray-100 rounded p-1.5 text-center shadow-sm">
                       <div className="text-[9px] text-gray-400 uppercase tracking-widest">Delta V</div>
-                      <div className={`text-sm font-bold font-serif ${m.delta_v >= 0 ? 'text-[#10b981]' : 'text-[#f59e0b]'}`}>
-                        {m.delta_v >= 0 ? '+' : ''}{(Number(m.delta_v) || 0).toFixed(1)} <span className="text-[10px] font-sans">kts</span>
+                      <div className={`text-sm font-bold font-serif ${(Number(m.delta_v) || 0) >= 0 ? 'text-[#10b981]' : 'text-[#f59e0b]'}`}>
+                        {(Number(m.delta_v) || 0) >= 0 ? '+' : ''}{(Number(m.delta_v) || 0).toFixed(1)} <span className="text-[10px] font-sans">kts</span>
                       </div>
                     </div>
                   </div>
@@ -285,29 +365,29 @@ export default function ManeuverFootprint({ maneuvers, trackData, highResTrack }
           <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(#ffffff 1px, transparent 1px)', backgroundSize: '40px 40px' }}></div>
 
           {renderData ? (
-            <svg 
-              className="w-full h-full p-8 drop-shadow-2xl" 
-              viewBox={renderData.viewBox} 
+            <svg
+              className="w-full h-full p-8 drop-shadow-2xl"
+              viewBox={renderData.viewBox}
               preserveAspectRatio="xMidYMid meet"
             >
-              <line 
-                x1="0" y1={renderData.viewBox.split(' ')[1]} 
-                x2="0" y2="10000" 
-                stroke="#ffffff" strokeWidth={renderData.baseStroke * 0.3} strokeDasharray="4,4" opacity="0.15" 
+              <line
+                x1="0" y1={renderData.viewBox.split(' ')[1]}
+                x2="0" y2="10000"
+                stroke="#ffffff" strokeWidth={renderData.baseStroke * 0.3} strokeDasharray="4,4" opacity="0.15"
               />
 
               {renderData.points.map((p, i) => {
                 if (i === 0) return null;
                 const prev = renderData.points[i - 1];
                 const dynamicStroke = renderData.baseStroke * Math.max(0.5, p.sog / 4);
-                const cometOpacity = 0.2 + (i / renderData.points.length) * 0.8; 
+                const cometOpacity = 0.2 + (i / renderData.points.length) * 0.8;
                 return (
-                  <line 
+                  <line
                     key={i}
-                    x1={prev.x} y1={prev.y} 
-                    x2={p.x} y2={p.y} 
-                    stroke={renderData.color} 
-                    strokeWidth={dynamicStroke} 
+                    x1={prev.x} y1={prev.y}
+                    x2={p.x} y2={p.y}
+                    stroke={renderData.color}
+                    strokeWidth={dynamicStroke}
                     strokeLinecap="round"
                     opacity={cometOpacity}
                   />
@@ -323,9 +403,9 @@ export default function ManeuverFootprint({ maneuvers, trackData, highResTrack }
                 <rect x={-renderData.baseStroke} y={-renderData.baseStroke} width={renderData.baseStroke * 2} height={renderData.baseStroke * 2} fill="white" opacity="0.8" />
                 <text x={renderData.baseStroke * 3} y="0" fill="white" fontSize={renderData.baseStroke * 4} opacity="0.8" dominantBaseline="middle" className="font-bold tracking-widest uppercase">Fine</text>
               </g>
-              
+
               <g transform={`translate(${renderData.turnPoint.x}, ${renderData.turnPoint.y}) rotate(${renderData.turnPoint.visualHeading})`}>
-                <polygon points={`-${renderData.baseStroke*1.5},${renderData.baseStroke*2} 0,-${renderData.baseStroke*3} ${renderData.baseStroke*1.5},${renderData.baseStroke*2} 0,${renderData.baseStroke}`} fill="white" />
+                <polygon points={`-${renderData.baseStroke * 1.5},${renderData.baseStroke * 2} 0,-${renderData.baseStroke * 3} ${renderData.baseStroke * 1.5},${renderData.baseStroke * 2} 0,${renderData.baseStroke}`} fill="white" />
                 <circle cx="0" cy="0" r={renderData.baseStroke * 5} fill="none" stroke={renderData.color} strokeWidth={renderData.baseStroke * 0.6} opacity="0.8" />
               </g>
 
@@ -335,7 +415,7 @@ export default function ManeuverFootprint({ maneuvers, trackData, highResTrack }
                   <circle cx="0" cy="0" r={renderData.baseStroke * 4} fill="#d4af37" opacity="0.18" />
                   <circle cx="0" cy="0" r={renderData.baseStroke * 2.6} fill="none" stroke="#d4af37" strokeWidth={renderData.baseStroke * 0.4} opacity="0.9" />
                   <polygon
-                    points={`-${renderData.baseStroke*1.3},${renderData.baseStroke*1.8} 0,-${renderData.baseStroke*2.8} ${renderData.baseStroke*1.3},${renderData.baseStroke*1.8} 0,${renderData.baseStroke*0.8}`}
+                    points={`-${renderData.baseStroke * 1.3},${renderData.baseStroke * 1.8} 0,-${renderData.baseStroke * 2.8} ${renderData.baseStroke * 1.3},${renderData.baseStroke * 1.8} 0,${renderData.baseStroke * 0.8}`}
                     fill="#d4af37"
                     stroke="white"
                     strokeWidth={renderData.baseStroke * 0.35}
@@ -350,13 +430,27 @@ export default function ManeuverFootprint({ maneuvers, trackData, highResTrack }
             </div>
           )}
 
+          {/* BADGE ATLETA — visibile solo in multi, per chiarire "di chi" stiamo
+              guardando il footprint quando l'occhio si perde tra tante tracce */}
+          {isMulti && activeSession && (
+            <div className="absolute top-6 right-6 pointer-events-none">
+              <div className="bg-[#040d1a]/80 backdrop-blur-md border border-white/10 px-3 py-2 rounded text-white flex items-center gap-2">
+                <span
+                  className="inline-block w-2.5 h-2.5 rounded-full"
+                  style={{ backgroundColor: activeSession.color }}
+                />
+                <span className="text-xs font-bold uppercase tracking-widest">{activeSession.label}</span>
+              </div>
+            </div>
+          )}
+
           {activeManeuver && activeStatus && (
             <div className="absolute top-6 left-6 flex gap-4 pointer-events-none">
               <div className="bg-[#040d1a]/80 backdrop-blur-md border border-white/10 p-4 rounded text-white min-w-[100px]">
                 <div className="text-[9px] text-gray-400 uppercase tracking-widest mb-1">Vel Ingresso</div>
                 <div className="text-2xl font-serif">{(Number(activeManeuver.sog_in) || 0).toFixed(1)} <span className="text-xs">kts</span></div>
               </div>
-              
+
               {/* HUD CENTRALE DINAMICO FOILING */}
               <div className={`bg-[#040d1a]/80 backdrop-blur-md border p-4 rounded min-w-[120px] shadow-2xl transition-colors duration-300 ${activeStatus.border}`}>
                 <div className={`text-[9px] uppercase font-bold tracking-widest mb-1 ${activeStatus.color}`}>
@@ -378,7 +472,7 @@ export default function ManeuverFootprint({ maneuvers, trackData, highResTrack }
             <div className="absolute bottom-6 right-6 pointer-events-none">
               <div className="bg-[#040d1a]/80 backdrop-blur-md border border-white/10 p-5 rounded text-white text-right shadow-xl min-w-[200px]">
                 <div className="flex flex-col items-end gap-4">
-                  
+
                   <div>
                     <div className="text-[9px] text-gray-400 uppercase tracking-widest mb-1 flex items-center justify-end gap-1">
                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>

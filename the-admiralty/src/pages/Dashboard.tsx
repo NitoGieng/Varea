@@ -246,16 +246,26 @@ export default function Dashboard() {
       }));
   }, [sessions]);
 
+  // Lab multi-atleta: una LabSession per ogni sessione visibile+filtrata.
+  // Al contrario della vecchia versione (che usava segmentMetrics della sola
+  // primary), qui il Lab riceve tutte le sessioni e un selettore atleta interno
+  // sceglie quale analizzare. Il filtro temporale e' gia' applicato da
+  // visibleFilteredSessions — non occorre ricostruire segmentMetrics.
+  const labSessions = useMemo(() => {
+    return visibleFilteredSessions.map(s => ({
+      id: s.id,
+      label: s.label,
+      color: s.color,
+      maneuvers: s.maneuvers,
+      trackData: s.trackData,
+      highResTrack: s.highResTrack,
+    }));
+  }, [visibleFilteredSessions]);
+
   const LabMemoized = useMemo(() => {
-    if (!telemetryData) return null;
-    return (
-      <ManeuverFootprint
-        maneuvers={segmentMetrics ? segmentMetrics.filteredManeuvers : telemetryData.maneuvers}
-        trackData={segmentMetrics ? segmentMetrics.filteredTrack : telemetryData.track_data}
-        highResTrack={segmentMetrics ? segmentMetrics.filteredHighRes : (telemetryData.high_res_track || [])}
-      />
-    );
-  }, [segmentMetrics, telemetryData]);
+    if (labSessions.length === 0) return null;
+    return <ManeuverFootprint sessions={labSessions} />;
+  }, [labSessions]);
 
 
   const genId = () =>
