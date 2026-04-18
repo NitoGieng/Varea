@@ -99,8 +99,17 @@ class ManeuverAnalyzer:
         # a TWA∈(180-H,180)∪(-180,-180+H). Con H=7° la soglia e' ~0.122.
         sin_H = float(np.sin(np.radians(self.hysteresis_deg)))
 
-        # Stato iniziale: segno del sin della prima media circolare
-        current_mure = 1 if sin_smooth[0] >= 0 else -1
+        # Stato iniziale: media del sin smussato sui primi 15s. Basarsi sul
+        # singolo sample sin_smooth[0] e' fragile — i primi 1-2s sono spesso
+        # contaminati dal warm-up del GPS (COG rumoroso, TWA ballerino). Se
+        # quel rumore inverte il segno iniziale, il primo flip corretto appena
+        # il filtro si stabilizza viene contato come manovra artificiale.
+        # 15s sono abbondanti per coprire il lag del rolling + dwell filter
+        # e mediare via eventuali transienti GPS senza perdere l'evidenza di
+        # una manovra vera avvenuta oltre.
+        warmup = min(15, n)
+        initial_sin = float(np.mean(sin_smooth[:warmup]))
+        current_mure = 1 if initial_sin >= 0 else -1
         mure[0] = current_mure
 
         candidate_mure = current_mure
