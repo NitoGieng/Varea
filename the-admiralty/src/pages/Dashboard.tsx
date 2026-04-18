@@ -1,26 +1,23 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
+import type { ReactNode } from 'react';
 import ManeuverFootprint from '../components/charts/ManeuverFootprint';
 import TelemetryMap from '../components/charts/TelemetryMap';
 import Maneuvers from './Maneuvers';
-import StartAnalysis from './StartAnalysis'; // IL NUOVO COMPONENTE
+import StartAnalysis from './StartAnalysis';
 import type { SessionData, AnalyzeResponse } from '../types/telemetry';
 import { assignColor } from '../data/palette';
 import SessionsBar from '../components/SessionsBar';
 
+type View = 'overview' | 'maneuvers' | 'lab' | 'start';
+
 export default function Dashboard() {
   // Stato multi-sessione. Un caricamento singolo produce un array di 1
-  // elemento: il comportamento single-player resta identico. Gli step
-  // successivi aggiungeranno upload multiplo e viste sovrapposte.
+  // elemento: il comportamento single-player resta identico.
   const [sessions, setSessions] = useState<SessionData[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
 
-  // Sessione pilota per le viste che non sono ancora multi-atleta (tutte
-  // per ora: overview header, StartAnalysis, Lab). Gli step 4-7 rimuoveranno
-  // questa dipendenza componente per componente. Preferisce una sessione
-  // in stato 'ready' a un placeholder 'loading': cosi' se carichi N file in
-  // parallelo, il main layout appare non appena la prima analisi termina,
-  // senza aspettare la piu' lenta.
+  // Sessione pilota per le viste non ancora multi-atleta.
   const primarySession = useMemo(() => {
     const ready = sessions.filter(s => s.status === 'ready');
     if (ready.length === 0) return null;
@@ -31,10 +28,7 @@ export default function Dashboard() {
     return ready[0];
   }, [sessions, activeSessionId]);
 
-  // Shim temporaneo: ricostruisce la vecchia forma {session_info, ...} da
-  // primarySession così il resto del componente (filtri, memo, rendering)
-  // resta invariato in questo step. Verrà rimosso quando ogni vista saprà
-  // consumare direttamente sessions[].
+  // Shim temporaneo verso la vecchia forma {session_info, ...}.
   const telemetryData = useMemo(() => {
     if (!primarySession || primarySession.status !== 'ready') return null;
     if (!primarySession.sessionInfo || !primarySession.environment) return null;
@@ -46,31 +40,20 @@ export default function Dashboard() {
       maneuvers: primarySession.maneuvers ?? [],
     };
   }, [primarySession]);
-  
-  // Aggiunto 'start' come possibile vista
-  const [currentView, setCurrentView] = useState<'overview' | 'maneuvers' | 'lab' | 'start'>('overview');
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
+
+  const [currentView, setCurrentView] = useState<View>('overview');
 
   // --- FILTRO TEMPORALE IN UTC ASSOLUTO ---
-  // Sorgente di verita' unica per il filtro: un intervallo in millisecondi
-  // UTC. La UI mostra i valori in due modi (relativo alla sessione attiva
-  // oppure orologio solare HH:MM:SS), entrambi derivati da pendingRange.
   const [useAbsoluteTime, setUseAbsoluteTime] = useState(false);
   const [pendingRange, setPendingRange] = useState<{ startMs: number; endMs: number } | null>(null);
   const [debouncedRange, setDebouncedRange] = useState<{ startMs: number; endMs: number } | null>(null);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Parsing robusto del timestamp ISO restituito dal backend: supporta sia
-  // 'YYYY-MM-DD HH:MM:SS' che 'YYYY-MM-DDTHH:MM:SS[Z]'. In Python pandas
-  // restituisce la forma con spazio, l'aggiungiamo Z per forzare UTC.
   const parseIsoMs = (s: string): number => {
     const norm = s.replace(' ', 'T');
     return new Date(norm.endsWith('Z') ? norm : norm + 'Z').getTime();
   };
 
-  // Bounds globali: unione di [session_start, session_end] delle sessioni
-  // ready. Usati per inizializzare il filtro al primo caricamento e per
-  // fare il clamp quando si aggiungono/rimuovono sessioni.
   const globalBounds = useMemo<{ startMs: number; endMs: number } | null>(() => {
     let minStart = Infinity;
     let maxEnd = -Infinity;
@@ -86,9 +69,6 @@ export default function Dashboard() {
     return { startMs: minStart, endMs: maxEnd };
   }, [sessions]);
 
-  // Quando i bounds cambiano (prima sessione, add/remove): inizializza o
-  // clampa il range. Clamp sincrono anche sul debouncedRange cosi' l'utente
-  // non aspetta 500ms per vedere i grafici riallinearsi.
   useEffect(() => {
     if (!globalBounds) {
       setPendingRange(null);
@@ -106,7 +86,6 @@ export default function Dashboard() {
     setDebouncedRange(clampOrReset);
   }, [globalBounds]);
 
-  // Debounce: pendingRange → debouncedRange dopo 500ms di inattivita'.
   useEffect(() => {
     if (!pendingRange) return;
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
@@ -118,41 +97,30 @@ export default function Dashboard() {
     };
   }, [pendingRange]);
 
-  // Ancora "tempo 0" per la modalita' relativa: e' la session attiva. Cambiare
-  // sessione attiva cambia la lettura (i minuti visualizzati), non il range
-  // di filtro sottostante (che resta in UTC assoluto).
   const primaryStartMs = useMemo(() => {
     if (!primarySession?.sessionInfo) return null;
     const ms = parseIsoMs(primarySession.sessionInfo.start_time);
     return Number.isNaN(ms) ? null : ms;
   }, [primarySession]);
 
-
-  // MOTORE DI TAGLIO — ora lavora su un intervallo UTC assoluto.
   const segmentMetrics = useMemo(() => {
     if (!telemetryData || !debouncedRange) return null;
-
     const filterStartEpoch = Math.min(debouncedRange.startMs, debouncedRange.endMs);
     const filterEndEpoch = Math.max(debouncedRange.startMs, debouncedRange.endMs);
-
     const inRange = (ts: string | undefined, includeMissing: boolean) => {
       if (!ts) return includeMissing;
       const t = parseIsoMs(ts);
       return t >= filterStartEpoch && t <= filterEndEpoch;
     };
-
     const segTrack = telemetryData.track_data.filter((p) => inRange(p.timestamp, true));
     const segHighRes = (telemetryData.high_res_track || []).filter((p) => inRange(p.timestamp, true));
     const segManeuvers = telemetryData.maneuvers.filter((m) => inRange(m.timestamp, false));
-
     const virate = segManeuvers.filter((m) => m.type.toLowerCase().includes('virata')).length;
     const strambate = segManeuvers.filter((m) => m.type.toLowerCase().includes('strambata')).length;
-
     const getAvg = (keywords: string[]) => {
       const pts = segTrack.filter((p) => keywords.some(kw => (p.andatura || '').toLowerCase().includes(kw)));
       return pts.length > 0 ? (pts.reduce((acc, p) => acc + p.sog_knots, 0) / pts.length).toFixed(1) : '--';
     };
-
     return {
       virate,
       strambate,
@@ -161,13 +129,10 @@ export default function Dashboard() {
       poppa: getAvg(['poppa', 'lasco', 'downwind', 'run', 'broad']),
       filteredManeuvers: segManeuvers,
       filteredTrack: segTrack,
-      filteredHighRes: segHighRes
+      filteredHighRes: segHighRes,
     };
   }, [telemetryData, debouncedRange]);
 
-  // Sessioni pronte + visibili, filtrate per debouncedRange: consumata sia dalla
-  // mappa (layers[]) sia dal registro manovre (sessions[]). Memo dedicato cosi'
-  // togglare visibilita'/aggiungere atleti non rifa il lavoro in entrambi.
   const visibleFilteredSessions = useMemo(() => {
     const visible = sessions.filter(s => s.status === 'ready' && s.visible);
     const range = debouncedRange;
@@ -194,15 +159,6 @@ export default function Dashboard() {
     });
   }, [sessions, debouncedRange]);
 
-  // Mappa multi-layer: una traccia per ogni sessione 'ready' e visibile, con
-  // colore = colore atleta. Con una sola sessione visibile si torna alla
-  // modalita' heatmap SOG storica. Decimazione (1200 pti totali) delegata a
-  // TelemetryMap cosi' il budget e' centralizzato.
-  //
-  // Scelta della sorgente per-sessione: 1Hz (high_res) solo se la sessione
-  // dura <= 1h, altrimenti track_data a 0.2Hz gia' downsampled dal backend.
-  // Decisione indipendente per atleta: confrontare una sessione breve 1Hz con
-  // una lunga 0.2Hz non introduce bias — la decimazione finale uniforma tutto.
   const MapMemoized = useMemo(() => {
     if (visibleFilteredSessions.length === 0) return null;
     const layers = visibleFilteredSessions.map(s => {
@@ -218,8 +174,6 @@ export default function Dashboard() {
     return <TelemetryMap layers={layers} colorMode={colorMode} />;
   }, [visibleFilteredSessions]);
 
-  // Registro manovre: riceve le sessioni visibili gia' filtrate. Maneuvers
-  // gestisce internamente merge cronologico, filtro atleta e paginazione.
   const maneuversSessions = useMemo(() => {
     return visibleFilteredSessions.map(s => ({
       id: s.id,
@@ -230,10 +184,6 @@ export default function Dashboard() {
     }));
   }, [visibleFilteredSessions]);
 
-  // Start analysis: usa l'highResTrack completo (NON filtrato), perche' il
-  // time-picker della vista Start sceglie un T=0 indipendente dal filtro
-  // globale. Filtrare a monte taglierebbe minuti utili a chi cerca lo sparo
-  // fuori dalla finestra correntemente selezionata.
   const startSessions = useMemo(() => {
     return sessions
       .filter(s => s.status === 'ready' && s.visible && s.highResTrack && s.sessionInfo)
@@ -246,11 +196,6 @@ export default function Dashboard() {
       }));
   }, [sessions]);
 
-  // Lab multi-atleta: una LabSession per ogni sessione visibile+filtrata.
-  // Al contrario della vecchia versione (che usava segmentMetrics della sola
-  // primary), qui il Lab riceve tutte le sessioni e un selettore atleta interno
-  // sceglie quale analizzare. Il filtro temporale e' gia' applicato da
-  // visibleFilteredSessions — non occorre ricostruire segmentMetrics.
   const labSessions = useMemo(() => {
     return visibleFilteredSessions.map(s => ({
       id: s.id,
@@ -267,22 +212,15 @@ export default function Dashboard() {
     return <ManeuverFootprint sessions={labSessions} />;
   }, [labSessions]);
 
-
   const genId = () =>
     (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
       ? crypto.randomUUID()
       : `sess-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-  // Upload N file in parallelo. Ogni file genera subito un placeholder
-  // 'loading' in state cosi' l'utente vede il progresso nella SessionsBar;
-  // poi fetch in Promise.all, ogni risposta aggiorna il suo placeholder in
-  // 'ready' o 'error' indipendentemente dagli altri.
   const handleFilesUpload = async (files: FileList) => {
     const fileArr = Array.from(files);
     if (fileArr.length === 0) return;
 
-    // Pre-assegna id + colore per ogni file (il colore tiene conto degli slot
-    // gia' occupati dalle sessioni esistenti e da quelle in questa stessa batch).
     const usedColors = sessions.map(s => s.color);
     const placeholders: SessionData[] = [];
     for (const file of fileArr) {
@@ -303,15 +241,15 @@ export default function Dashboard() {
     }
     setIsUploading(true);
 
-    const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
+    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
     await Promise.all(
       placeholders.map(async (ph, idx) => {
         const file = fileArr[idx];
         const formData = new FormData();
-        formData.append("file", file);
+        formData.append('file', file);
         try {
-          const response = await fetch(`${apiUrl}/api/analyze`, { method: "POST", body: formData });
+          const response = await fetch(`${apiUrl}/api/analyze`, { method: 'POST', body: formData });
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
           const data: AnalyzeResponse = await response.json();
           setSessions(prev => prev.map(s =>
@@ -340,13 +278,10 @@ export default function Dashboard() {
   };
 
   const handleSetActive = (id: string) => setActiveSessionId(id);
-
   const handleToggleVisible = (id: string) =>
     setSessions(prev => prev.map(s => (s.id === id ? { ...s, visible: !s.visible } : s)));
-
   const handleRename = (id: string, newLabel: string) =>
     setSessions(prev => prev.map(s => (s.id === id ? { ...s, label: newLabel } : s)));
-
   const handleRemoveSession = (id: string) => {
     setSessions(prev => prev.filter(s => s.id !== id));
     if (activeSessionId === id) setActiveSessionId(null);
@@ -354,46 +289,44 @@ export default function Dashboard() {
 
   const handleDownload = () => {
     if (!telemetryData) return;
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(telemetryData, null, 2));
+    const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(telemetryData, null, 2));
     const downloadNode = document.createElement('a');
-    downloadNode.setAttribute("href", dataStr);
-    downloadNode.setAttribute("download", `${telemetryData.session_info.file_name}_report.json`);
+    downloadNode.setAttribute('href', dataStr);
+    downloadNode.setAttribute('download', `${telemetryData.session_info.file_name}_report.json`);
     document.body.appendChild(downloadNode);
     downloadNode.click();
     downloadNode.remove();
   };
 
+  // ---------- EMPTY STATE (nessuna sessione caricata) ----------
   if (!telemetryData) {
     const loadingCount = sessions.filter(s => s.status === 'loading').length;
     const errorCount = sessions.filter(s => s.status === 'error').length;
     return (
-      <div className="min-h-screen bg-paper flex items-center justify-center p-8">
-        <div className="bg-surface p-12 text-center shadow-lg border border-gray-200 max-w-md w-full">
-           <h1 className="text-3xl font-serif font-black text-navy-900 mb-2">Varea</h1>
-           <p className="text-sm text-gray-500 mb-8">Analisi Telemetrica delle Prestazioni</p>
-           <label className="bg-navy-900 text-white px-8 py-4 text-xs font-bold uppercase tracking-widest cursor-pointer hover:bg-navy-800 transition-colors block w-full relative">
-              {loadingCount > 0
-                ? `Analisi ${loadingCount} file in corso...`
-                : 'Carica File .FIT'}
-              <input
-                type="file"
-                multiple
-                className="hidden"
-                accept=".fit,.FIT,.csv,.CSV"
-                onChange={(e) => {
-                  if (e.target.files && e.target.files.length > 0) {
-                    handleFilesUpload(e.target.files);
-                  }
-                  e.target.value = '';
-                }}
-                disabled={loadingCount > 0}
-              />
-           </label>
-           {errorCount > 0 && (
-             <p className="text-xs text-red-500 mt-4">
-               {errorCount} file non analizzati. Controlla che il backend sia acceso e riprova.
-             </p>
-           )}
+      <div className="min-h-screen bg-bg text-ink flex items-center justify-center p-8">
+        <div className="bg-surface-1 border border-border rounded-lg shadow-card-md p-12 text-center max-w-md w-full">
+          <p className="eyebrow mb-3">Telemetry analytics</p>
+          <h1 className="font-serif italic text-h1 text-ink leading-none mb-1">Varea</h1>
+          <div className="rule-brass mt-6 mb-8" />
+          <label className="block w-full bg-ink text-bg px-8 py-4 text-eyebrow uppercase tracking-eyebrow cursor-pointer hover:bg-gold transition-colors duration-220 ease-varea">
+            {loadingCount > 0 ? `Analisi ${loadingCount} file…` : 'Carica file .FIT'}
+            <input
+              type="file"
+              multiple
+              className="hidden"
+              accept=".fit,.FIT,.csv,.CSV"
+              onChange={(e) => {
+                if (e.target.files && e.target.files.length > 0) handleFilesUpload(e.target.files);
+                e.target.value = '';
+              }}
+              disabled={loadingCount > 0}
+            />
+          </label>
+          {errorCount > 0 && (
+            <p className="text-caption text-terra mt-4">
+              {errorCount} file non analizzati. Verifica che il backend sia attivo.
+            </p>
+          )}
         </div>
       </div>
     );
@@ -401,12 +334,11 @@ export default function Dashboard() {
 
   const { session_info, environment } = telemetryData;
   const isFiltered = segmentMetrics && segmentMetrics.filteredTrack.length < telemetryData.track_data.length;
+  const sessionDisplayName = session_info.file_name.replace(/\.(fit|FIT)$/, '');
+  const durationH = Math.floor(session_info.duration_seconds / 3600);
+  const durationM = Math.floor((session_info.duration_seconds % 3600) / 60);
 
-  // --- Derivati UI del filtro temporale ---
-  // Due letture dallo stesso pendingRange: relativa alla sessione attiva
-  // (M:S da t=0) oppure orologio solare UTC (HH:MM:SS). Gli handler scrivono
-  // sempre su pendingRange; il debounce a monte propaga a debouncedRange
-  // dopo 500ms di inattivita', cosi' i grafici non si ricalcolano a ogni tasto.
+  // ---------- DERIVATI UI DEL FILTRO TEMPORALE ----------
   const fmtClockUtc = (ms: number) => {
     const d = new Date(ms);
     const hh = String(d.getUTCHours()).padStart(2, '0');
@@ -446,8 +378,6 @@ export default function Dashboard() {
       endMs: newEnd,
     } : prev);
   };
-
-  // Applica HH:MM[:SS] mantenendo la data (UTC) del ms di riferimento.
   const parseClockUtc = (hms: string, referenceMs: number): number | null => {
     const parts = hms.split(':');
     if (parts.length < 2) return null;
@@ -471,7 +401,6 @@ export default function Dashboard() {
     if (!pendingRange) return;
     let newEnd = parseClockUtc(hms, pendingRange.endMs);
     if (newEnd == null) return;
-    // Cross-midnight: se l'ora digitata e' prima dello start, assume giorno successivo.
     if (newEnd <= pendingRange.startMs) newEnd += 24 * 60 * 60 * 1000;
     setPendingRange(prev => prev ? {
       startMs: Math.min(prev.startMs, newEnd - 1000),
@@ -479,28 +408,19 @@ export default function Dashboard() {
     } : prev);
   };
 
+  // ---------- RENDER ----------
   return (
-    <div className="min-h-screen bg-gray-100 flex flex-col relative">
-      <header className="bg-[#061325] px-6 py-5 flex items-center shadow-md sticky top-0 z-[100]">
-        <button onClick={() => setIsMenuOpen(!isMenuOpen)} className="text-gold hover:text-white transition-colors relative z-[110]">
-          <svg className="w-7 h-7" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" /></svg>
-        </button>
-        {isMenuOpen && <div className="fixed inset-0 z-[105]" onClick={() => setIsMenuOpen(false)}></div>}
-        {isMenuOpen && (
-          <div className="absolute top-16 left-6 mt-2 w-64 bg-white rounded-md shadow-2xl border border-gray-100 overflow-hidden flex flex-col z-[110] transform transition-all duration-200 origin-top-left">
-            <button onClick={() => { setCurrentView('overview'); setIsMenuOpen(false); }} className={`text-left px-6 py-4 text-xs font-bold uppercase tracking-widest transition-colors ${currentView === 'overview' ? 'bg-gray-50 text-gold border-l-4 border-gold' : 'text-navy-900 hover:bg-gray-50 border-l-4 border-transparent'}`}>Panoramica Dashboard</button>
-            <button onClick={() => { setCurrentView('maneuvers'); setIsMenuOpen(false); }} className={`text-left px-6 py-4 text-xs font-bold uppercase tracking-widest transition-colors ${currentView === 'maneuvers' ? 'bg-gray-50 text-gold border-l-4 border-gold' : 'text-navy-900 hover:bg-gray-50 border-l-4 border-transparent'}`}>Registro Manovre</button>
-            <button onClick={() => { setCurrentView('lab'); setIsMenuOpen(false); }} className={`text-left px-6 py-4 text-xs font-bold uppercase tracking-widest transition-colors ${currentView === 'lab' ? 'bg-gray-50 text-gold border-l-4 border-gold' : 'text-navy-900 hover:bg-gray-50 border-l-4 border-transparent'}`}>Laboratorio Traiettorie</button>
-            {/* NUOVA VOCE MENU */}
-            <button onClick={() => { setCurrentView('start'); setIsMenuOpen(false); }} className={`text-left px-6 py-4 text-xs font-bold uppercase tracking-widest transition-colors ${currentView === 'start' ? 'bg-gray-50 text-gold border-l-4 border-gold' : 'text-navy-900 hover:bg-gray-50 border-l-4 border-transparent'}`}>Analisi Start</button>
-          </div>
-        )}
-      </header>
+    <div className="min-h-screen bg-bg text-ink flex">
+      <Sidebar currentView={currentView} onNavigate={setCurrentView} />
 
-      <main className="flex-1 w-full bg-paper flex flex-col">
+      <div className="flex-1 ml-14 flex flex-col min-w-0">
+        <Topbar
+          viewLabel={VIEW_LABELS[currentView]}
+          onDownload={handleDownload}
+          onUpload={handleFilesUpload}
+          isUploading={isUploading}
+        />
 
-        {/* BARRA SESSIONI: lista delle sessioni caricate con gestione colore/
-            label/visibilita'/rimozione + pulsante aggiungi file */}
         <SessionsBar
           sessions={sessions}
           activeSessionId={activeSessionId}
@@ -512,256 +432,476 @@ export default function Dashboard() {
           isUploading={isUploading}
         />
 
-        {/* LA BARRA FILTRI SCOMPARE NELLA VISTA START (Lì c'è un time-picker dedicato) */}
         {currentView !== 'start' && (
-          <div className="bg-white border-b border-gray-200 shadow-sm z-[90] relative px-6 lg:px-12 py-4">
-            <div className="max-w-[1600px] mx-auto flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4">
-              <div>
-                <h3 className="text-sm font-bold uppercase tracking-[0.15em] text-navy-900">Filtro Temporale Globale</h3>
-                <p className="text-[10px] text-gray-500 mt-0.5">La selezione viene applicata istantaneamente a Mappe, Tabelle e Grafici.</p>
-              </div>
-              
-              <div className="flex flex-col gap-2">
-                <div className="flex justify-end">
-                  <div className="inline-flex bg-gray-100 rounded p-1">
-                    <button onClick={() => setUseAbsoluteTime(false)} className={`px-3 py-1 text-[10px] font-bold uppercase tracking-widest rounded ${!useAbsoluteTime ? 'bg-white shadow-sm text-navy-900' : 'text-gray-400'}`}>Timer Relativo</button>
-                    <button onClick={() => setUseAbsoluteTime(true)} className={`px-3 py-1 text-[10px] font-bold uppercase tracking-widest rounded ${useAbsoluteTime ? 'bg-white shadow-sm text-navy-900' : 'text-gray-400'}`}>Orologio Solare</button>
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-4">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Da:</span>
-                    {!useAbsoluteTime ? (
-                      <div className="flex items-center bg-gray-50 border border-gray-200 rounded focus-within:border-gold overflow-hidden">
-                        <input
-                          type="number" min="0" max={displayEnd.min} placeholder="Min"
-                          value={displayStart.min}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            if (v === '') return;
-                            const n = Number(v);
-                            if (Number.isNaN(n)) return;
-                            setStartRelative(n, displayStart.sec);
-                          }}
-                          className="w-12 py-1 px-1 bg-transparent text-xs font-bold text-navy-900 outline-none text-center"
-                        />
-                        <span className="text-gray-300 font-bold">:</span>
-                        <input
-                          type="number" min="0" max="59" placeholder="Sec"
-                          value={displayStart.sec}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            if (v === '') return;
-                            const n = Number(v);
-                            if (Number.isNaN(n)) return;
-                            setStartRelative(displayStart.min, n);
-                          }}
-                          className="w-12 py-1 px-1 bg-transparent text-xs font-bold text-navy-900 outline-none text-center"
-                        />
-                      </div>
-                    ) : (
-                      <div className="flex items-center bg-gray-50 border border-gray-200 rounded focus-within:border-gold overflow-hidden">
-                         <input
-                           type="time" step="1"
-                           value={absStartDisplay}
-                           onChange={(e) => setStartAbsolute(e.target.value)}
-                           className="py-1 px-2 bg-transparent text-xs font-bold text-navy-900 outline-none"
-                         />
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">A:</span>
-                    {!useAbsoluteTime ? (
-                      <div className="flex items-center bg-gray-50 border border-gray-200 rounded focus-within:border-gold overflow-hidden">
-                        <input
-                          type="number" min={displayStart.min} max={maxRelMinutes} placeholder="Min"
-                          value={displayEnd.min}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            if (v === '') return;
-                            const n = Number(v);
-                            if (Number.isNaN(n)) return;
-                            setEndRelative(n, displayEnd.sec);
-                          }}
-                          className="w-12 py-1 px-1 bg-transparent text-xs font-bold text-navy-900 outline-none text-center"
-                        />
-                        <span className="text-gray-300 font-bold">:</span>
-                        <input
-                          type="number" min="0" max="59" placeholder="Sec"
-                          value={displayEnd.sec}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            if (v === '') return;
-                            const n = Number(v);
-                            if (Number.isNaN(n)) return;
-                            setEndRelative(displayEnd.min, n);
-                          }}
-                          className="w-12 py-1 px-1 bg-transparent text-xs font-bold text-navy-900 outline-none text-center"
-                        />
-                      </div>
-                    ) : (
-                      <div className="flex items-center bg-gray-50 border border-gray-200 rounded focus-within:border-gold overflow-hidden">
-                         <input
-                           type="time" step="1"
-                           value={absEndDisplay}
-                           onChange={(e) => setEndAbsolute(e.target.value)}
-                           className="py-1 px-2 bg-transparent text-xs font-bold text-navy-900 outline-none"
-                         />
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+          <FilterBar
+            useAbsoluteTime={useAbsoluteTime}
+            setUseAbsoluteTime={setUseAbsoluteTime}
+            displayStart={displayStart}
+            displayEnd={displayEnd}
+            absStartDisplay={absStartDisplay}
+            absEndDisplay={absEndDisplay}
+            maxRelMinutes={maxRelMinutes}
+            setStartRelative={setStartRelative}
+            setEndRelative={setEndRelative}
+            setStartAbsolute={setStartAbsolute}
+            setEndAbsolute={setEndAbsolute}
+          />
         )}
 
-        {/* --- SCHERMATE DELL'APP --- */}
-        <div className="flex-1 w-full">
-          
-          {currentView === 'maneuvers' && (
-            <Maneuvers sessions={maneuversSessions} />
-          )}
-
-          {currentView === 'lab' && (
-            <div className="p-6 lg:p-8 max-w-[1600px] mx-auto w-full h-[calc(100vh-160px)]">
-              <div className="bg-surface shadow-md h-full flex flex-col border border-gray-200 overflow-hidden rounded-md">
-                 <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-white">
-                   <div>
-                     <h3 className="text-lg font-serif font-bold text-navy-900">Laboratorio Traiettorie</h3>
-                     <p className="text-[10px] text-gray-500 uppercase tracking-widest mt-1">Seleziona una manovra per analizzare la "radiografia" XY</p>
-                   </div>
-                 </div>
-                 <div className="flex-1 relative flex flex-col overflow-hidden">
-                   {LabMemoized}
-                 </div>
-              </div>
-            </div>
-          )}
-
-          {/* LA NUOVA VISTA START — multi-atleta a T=0 condiviso */}
-          {currentView === 'start' && (
-             <StartAnalysis sessions={startSessions} />
-          )}
-
+        <main className="flex-1 w-full">
           {currentView === 'overview' && (
-            <div className="p-8 lg:p-12 max-w-7xl mx-auto w-full">
-              
-              <div className="flex gap-4 mb-12">
-                <button onClick={handleDownload} className="bg-white text-navy-900 border border-navy-900 px-6 py-3 text-xs font-bold uppercase tracking-widest hover:bg-gray-50 transition-colors">Esporta JSON</button>
-                <label className="bg-navy-900 text-white px-6 py-3 text-xs font-bold uppercase tracking-widest cursor-pointer hover:bg-navy-800 transition-colors">
-                  {isUploading ? "Caricamento..." : "Aggiungi File .FIT"}
-                  <input
-                    type="file"
-                    multiple
-                    className="hidden"
-                    accept=".fit,.FIT,.csv,.CSV"
-                    onChange={(e) => {
-                      if (e.target.files && e.target.files.length > 0) {
-                        handleFilesUpload(e.target.files);
-                      }
-                      e.target.value = '';
-                    }}
-                    disabled={isUploading}
-                  />
-                </label>
-              </div>
-              
-              <header className="mb-12 flex flex-col md:flex-row md:items-end justify-between border-b border-gray-300 pb-6">
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-gray-500 mb-2">Log Sessione Corrente</p>
-                  <h1 className="text-6xl md:text-7xl font-serif font-black text-navy-900 leading-none tracking-tight">{session_info.file_name.replace('.fit', '').replace('.FIT', '')}</h1>
+            <div className="px-6 lg:px-12 py-10 max-w-[1500px] mx-auto w-full">
+              {/* HEADER SESSIONE — editoriale */}
+              <header className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-8">
+                <div className="min-w-0">
+                  <p className="eyebrow mb-3">Sessione corrente</p>
+                  <h1 className="font-serif italic text-h1 text-ink leading-none truncate">
+                    {sessionDisplayName}
+                  </h1>
                 </div>
-                <div className="flex flex-col items-start md:items-end mt-6 md:mt-0">
-                  <div className="flex items-center gap-2 text-gold font-bold text-sm mb-1">
-                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" /></svg>
-                    <span>{Math.floor(session_info.duration_seconds / 3600)}H {Math.floor((session_info.duration_seconds % 3600) / 60)}M IN NAVIGAZIONE</span>
+                <div className="text-left md:text-right shrink-0">
+                  <p className="eyebrow mb-2">Vento reale</p>
+                  <div className="flex items-baseline gap-2 md:justify-end">
+                    <span className="font-mono tabular text-3xl text-gold leading-none">
+                      {environment.computed_twd_deg}
+                    </span>
+                    <span className="text-eyebrow text-ink-muted">°TWD</span>
                   </div>
-                  <p className="text-xs text-gray-500 flex items-center gap-1">
-                    {environment.is_estimated ? (
-                      <span title="Dato stimato dall'algoritmo GPS" className="w-2 h-2 rounded-full bg-orange-400 inline-block"></span>
-                    ) : (
-                      <span title="Dato reale fornito da satellite" className="w-2 h-2 rounded-full bg-green-400 inline-block"></span>
-                    )}
-                    Direzione Vento: {environment.computed_twd_deg}°
+                  <p className="text-caption text-ink-muted mt-2 flex items-center gap-2 md:justify-end">
+                    <span className={`w-1.5 h-1.5 rounded-full ${environment.is_estimated ? 'bg-amber' : 'bg-sage'}`} />
+                    {environment.is_estimated ? 'Stimato GPS' : 'Stormglass'}
+                    <span className="text-ink-muted">·</span>
+                    <span className="font-mono tabular">{durationH}h {String(durationM).padStart(2, '0')}m</span>
                   </p>
                 </div>
               </header>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <div className="bg-surface p-8 shadow-sm relative overflow-hidden flex flex-col justify-between min-h-[220px]">
-                  <div className="absolute top-0 left-0 w-[6px] h-full bg-[#6a4f2e]"></div>
-                  <div>
-                    <h3 className="text-xs font-bold uppercase tracking-[0.15em] text-navy-900 mb-6">Velocità di Picco</h3>
-                    <div className="flex items-baseline gap-2 mb-2">
-                      <span className="text-7xl font-serif font-black text-navy-900 italic tracking-tighter">{session_info.sog_max_kts.toFixed(1)}</span>
-                      <span className="text-xl font-serif font-bold text-gold">KTS</span>
-                    </div>
-                  </div>
-                  <p className="text-xs text-gray-500 flex items-center gap-1">Distanza Totale: {session_info.distance_nm} NM</p>
-                </div>
+              <div className="rule-brass mb-10" />
 
-                <div className="bg-surface p-8 shadow-sm flex flex-col justify-between min-h-[220px]">
-                  <div>
-                    <h3 className="text-xs font-bold uppercase tracking-[0.15em] text-navy-900 mb-6">Velocità Media</h3>
-                    <div className="flex items-baseline gap-2 mb-4">
-                      <span className="text-7xl font-serif font-black text-navy-900 italic tracking-tighter">{session_info.sog_avg_kts.toFixed(1)}</span>
-                      <span className="text-xl font-serif font-bold text-gold">KTS</span>
-                    </div>
-                  </div>
-                  <div>
-                    <div className="w-full h-1 bg-gray-200 mb-2"><div className="h-1 bg-navy-900 w-[70%]"></div></div>
-                    <p className="text-[10px] uppercase text-gray-500 tracking-wider">Costanza: Alta</p>
-                  </div>
-                </div>
+              {/* HERO KPI — 2 metriche giant in mono */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
+                <KpiHero
+                  label="Velocità di picco"
+                  value={session_info.sog_max_kts.toFixed(1)}
+                  suffix="kts"
+                  sub={`Distanza totale ${session_info.distance_nm} NM`}
+                  highlight
+                />
+                <KpiHero
+                  label="Velocità media"
+                  value={session_info.sog_avg_kts.toFixed(1)}
+                  suffix="kts"
+                  sub="Costanza alta"
+                />
               </div>
 
+              {/* SEGMENT METRICS — 5 stat neutre */}
               {segmentMetrics && (
-                <div className="mt-8">
-                  <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-gray-400 mb-3 ml-1">Metriche Segmento Selezionato</p>
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                    <div className="bg-white shadow-sm p-4 rounded border border-gray-100 text-center">
-                      <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Virate</div>
-                      <div className="text-2xl font-serif font-bold text-navy-900">{segmentMetrics.virate}</div>
-                    </div>
-                    <div className="bg-white shadow-sm p-4 rounded border border-gray-100 text-center">
-                      <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Strambate</div>
-                      <div className="text-2xl font-serif font-bold text-navy-900">{segmentMetrics.strambate}</div>
-                    </div>
-                    <div className="bg-white shadow-sm p-4 rounded border border-blue-100 text-center">
-                      <div className="text-[10px] font-bold text-blue-800 uppercase tracking-widest mb-1">Bolina Avg</div>
-                      <div className="text-2xl font-serif font-bold text-blue-900">{segmentMetrics.bolina} <span className="text-xs text-blue-600">kts</span></div>
-                    </div>
-                    <div className="bg-white shadow-sm p-4 rounded border border-green-100 text-center">
-                      <div className="text-[10px] font-bold text-green-800 uppercase tracking-widest mb-1">Traverso Avg</div>
-                      <div className="text-2xl font-serif font-bold text-green-900">{segmentMetrics.traverso} <span className="text-xs text-green-600">kts</span></div>
-                    </div>
-                    <div className="bg-white shadow-sm p-4 rounded border border-purple-100 text-center">
-                      <div className="text-[10px] font-bold text-purple-800 uppercase tracking-widest mb-1">Poppa Avg</div>
-                      <div className="text-2xl font-serif font-bold text-purple-900">{segmentMetrics.poppa} <span className="text-xs text-purple-600">kts</span></div>
-                    </div>
+                <section className="mb-10">
+                  <p className="eyebrow mb-4">Segmento selezionato</p>
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                    <StatCard label="Virate" value={String(segmentMetrics.virate)} />
+                    <StatCard label="Strambate" value={String(segmentMetrics.strambate)} />
+                    <StatCard label="Bolina" value={segmentMetrics.bolina} unit="kts" />
+                    <StatCard label="Traverso" value={segmentMetrics.traverso} unit="kts" />
+                    <StatCard label="Poppa" value={segmentMetrics.poppa} unit="kts" />
                   </div>
-                </div>
+                </section>
               )}
 
-              <div className="mt-8 bg-surface shadow-sm min-h-[600px] flex flex-col border border-gray-200">
-                  <div className="p-6 border-b border-gray-100 flex justify-between items-center">
-                    <h3 className="text-xs font-bold uppercase tracking-[0.15em] text-navy-900">
-                      Tracciato GPS {isFiltered ? '(Segmento Filtrato)' : 'Completo'}
-                    </h3>
-                  </div>
-                  <div className="flex-1 w-full relative bg-gray-50">
-                    {MapMemoized}
-                  </div>
-              </div>
-
+              {/* MAPPA */}
+              <section className="bg-surface-1 border border-border rounded-lg shadow-card overflow-hidden">
+                <div className="px-6 py-4 border-b border-border flex items-center justify-between">
+                  <h3 className="eyebrow">
+                    Tracciato GPS{isFiltered ? ' · segmento filtrato' : ''}
+                  </h3>
+                </div>
+                <div className="h-[600px] w-full bg-bg">
+                  {MapMemoized}
+                </div>
+              </section>
             </div>
           )}
-        </div>
-      </main>
+
+          {currentView === 'maneuvers' && (
+            <div className="bg-bg text-ink min-h-[60vh]">
+              <Maneuvers sessions={maneuversSessions} />
+            </div>
+          )}
+
+          {currentView === 'lab' && (
+            <div className="px-6 lg:px-12 py-8 max-w-[1500px] mx-auto w-full h-[calc(100vh-180px)]">
+              <div className="bg-surface-1 border border-border rounded-lg shadow-card h-full flex flex-col overflow-hidden">
+                <div className="px-6 py-4 border-b border-border">
+                  <p className="eyebrow mb-1">Laboratorio</p>
+                  <h3 className="font-serif italic text-h2 text-ink leading-none">Traiettorie</h3>
+                  <p className="text-caption text-ink-muted mt-2">
+                    Seleziona una manovra per analizzare la radiografia XY.
+                  </p>
+                </div>
+                <div className="flex-1 relative flex flex-col overflow-hidden bg-bg">
+                  {LabMemoized}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {currentView === 'start' && (
+            <div className="bg-bg text-ink min-h-[60vh]">
+              <StartAnalysis sessions={startSessions} />
+            </div>
+          )}
+        </main>
+      </div>
     </div>
+  );
+}
+
+// ============================================================
+// SOTTO-COMPONENTI UI
+// ============================================================
+
+const VIEW_LABELS: Record<View, string> = {
+  overview: 'Panoramica',
+  maneuvers: 'Manovre',
+  lab: 'Laboratorio',
+  start: 'Start',
+};
+
+interface SidebarProps {
+  currentView: View;
+  onNavigate: (v: View) => void;
+}
+
+// Sidebar collapsibile: 56px collapsed, 240px expanded on hover.
+// Group hover sblocca le label e l'expand contemporaneamente.
+function Sidebar({ currentView, onNavigate }: SidebarProps) {
+  const items: { id: View; label: string; icon: ReactNode }[] = [
+    { id: 'overview', label: 'Panoramica', icon: <CompassIcon /> },
+    { id: 'maneuvers', label: 'Manovre', icon: <RotateIcon /> },
+    { id: 'lab', label: 'Laboratorio', icon: <ScatterIcon /> },
+    { id: 'start', label: 'Start', icon: <FlagIcon /> },
+  ];
+
+  return (
+    <aside className="group fixed left-0 top-0 bottom-0 z-50 w-14 hover:w-60 bg-surface-1 border-r border-border transition-[width] duration-260 ease-varea overflow-hidden flex flex-col">
+      <div className="h-14 flex items-center px-4 border-b border-border shrink-0">
+        <span className="font-serif italic text-2xl text-gold leading-none w-6 text-center">V</span>
+        <span className="ml-3 font-serif italic text-base text-ink whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-220 ease-varea">
+          Varea
+        </span>
+      </div>
+
+      <nav className="py-2 flex-1">
+        {items.map(item => {
+          const active = currentView === item.id;
+          return (
+            <button
+              key={item.id}
+              onClick={() => onNavigate(item.id)}
+              className={`w-full h-12 flex items-center px-4 relative transition-colors duration-220 ease-varea ${
+                active ? 'text-gold' : 'text-ink-2 hover:text-ink'
+              }`}
+            >
+              {active && <span className="absolute left-0 top-2 bottom-2 w-0.5 bg-gold" />}
+              <span className="w-6 h-6 flex items-center justify-center shrink-0">{item.icon}</span>
+              <span className="ml-3 text-eyebrow whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-220 ease-varea">
+                {item.label}
+              </span>
+            </button>
+          );
+        })}
+      </nav>
+
+      <div className="border-t border-border h-14 flex items-center px-4 shrink-0">
+        <button
+          onClick={() => document.documentElement.classList.toggle('dark')}
+          className="w-6 h-6 flex items-center justify-center text-ink-muted hover:text-gold transition-colors duration-220"
+          title="Inverti tema"
+          aria-label="Toggle tema"
+        >
+          <ThemeIcon />
+        </button>
+        <span className="ml-3 text-eyebrow text-ink-muted whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-220">
+          Tema
+        </span>
+      </div>
+    </aside>
+  );
+}
+
+interface TopbarProps {
+  viewLabel: string;
+  onDownload: () => void;
+  onUpload: (files: FileList) => void;
+  isUploading: boolean;
+}
+
+function Topbar({ viewLabel, onDownload, onUpload, isUploading }: TopbarProps) {
+  return (
+    <header className="sticky top-0 z-40 h-14 bg-bg/85 backdrop-blur border-b border-border flex items-center px-6 lg:px-12">
+      <div className="flex-1 flex items-center gap-3 min-w-0">
+        <span className="eyebrow">Varea · Telemetry</span>
+        <span className="text-ink-muted">/</span>
+        <span className="font-serif italic text-base text-ink truncate">{viewLabel}</span>
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        <button
+          onClick={onDownload}
+          className="text-eyebrow uppercase tracking-eyebrow text-ink-2 hover:text-gold border border-border hover:border-gold rounded-md px-3 py-2 transition-colors duration-220 ease-varea"
+        >
+          Esporta JSON
+        </button>
+        <label className="text-eyebrow uppercase tracking-eyebrow bg-ink text-bg hover:bg-gold rounded-md px-3 py-2 cursor-pointer transition-colors duration-220 ease-varea">
+          {isUploading ? 'Caricamento…' : '+ Carica .FIT'}
+          <input
+            type="file"
+            multiple
+            className="hidden"
+            accept=".fit,.FIT,.csv,.CSV"
+            onChange={(e) => {
+              if (e.target.files && e.target.files.length > 0) onUpload(e.target.files);
+              e.target.value = '';
+            }}
+            disabled={isUploading}
+          />
+        </label>
+      </div>
+    </header>
+  );
+}
+
+interface FilterBarProps {
+  useAbsoluteTime: boolean;
+  setUseAbsoluteTime: (v: boolean) => void;
+  displayStart: { min: number; sec: number };
+  displayEnd: { min: number; sec: number };
+  absStartDisplay: string;
+  absEndDisplay: string;
+  maxRelMinutes: number;
+  setStartRelative: (min: number, sec: number) => void;
+  setEndRelative: (min: number, sec: number) => void;
+  setStartAbsolute: (hms: string) => void;
+  setEndAbsolute: (hms: string) => void;
+}
+
+function FilterBar(p: FilterBarProps) {
+  return (
+    <div className="bg-surface-1 border-b border-border px-6 lg:px-12 py-3">
+      <div className="max-w-[1500px] mx-auto flex flex-col xl:flex-row justify-between items-start xl:items-center gap-3">
+        <div>
+          <p className="eyebrow">Filtro temporale</p>
+          <p className="text-caption text-ink-muted mt-0.5">Applicato a mappe, tabelle e grafici.</p>
+        </div>
+        <div className="flex flex-col gap-2 items-end">
+          <div className="inline-flex bg-bg border border-border rounded-md p-0.5">
+            <button
+              onClick={() => p.setUseAbsoluteTime(false)}
+              className={`px-3 py-1 text-eyebrow uppercase tracking-eyebrow rounded-sm transition-colors duration-220 ${
+                !p.useAbsoluteTime ? 'bg-surface-2 text-ink' : 'text-ink-muted'
+              }`}
+            >
+              Relativo
+            </button>
+            <button
+              onClick={() => p.setUseAbsoluteTime(true)}
+              className={`px-3 py-1 text-eyebrow uppercase tracking-eyebrow rounded-sm transition-colors duration-220 ${
+                p.useAbsoluteTime ? 'bg-surface-2 text-ink' : 'text-ink-muted'
+              }`}
+            >
+              Orologio
+            </button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <FilterField label="Da">
+              {!p.useAbsoluteTime ? (
+                <RelativeInput
+                  min={p.displayStart.min}
+                  sec={p.displayStart.sec}
+                  maxMin={p.displayEnd.min}
+                  onMinChange={(n) => p.setStartRelative(n, p.displayStart.sec)}
+                  onSecChange={(n) => p.setStartRelative(p.displayStart.min, n)}
+                />
+              ) : (
+                <ClockInput value={p.absStartDisplay} onChange={p.setStartAbsolute} />
+              )}
+            </FilterField>
+            <FilterField label="A">
+              {!p.useAbsoluteTime ? (
+                <RelativeInput
+                  min={p.displayEnd.min}
+                  sec={p.displayEnd.sec}
+                  minMin={p.displayStart.min}
+                  maxMin={p.maxRelMinutes}
+                  onMinChange={(n) => p.setEndRelative(n, p.displayEnd.sec)}
+                  onSecChange={(n) => p.setEndRelative(p.displayEnd.min, n)}
+                />
+              ) : (
+                <ClockInput value={p.absEndDisplay} onChange={p.setEndAbsolute} />
+              )}
+            </FilterField>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FilterField({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="eyebrow">{label}</span>
+      {children}
+    </div>
+  );
+}
+
+function RelativeInput({
+  min,
+  sec,
+  minMin = 0,
+  maxMin,
+  onMinChange,
+  onSecChange,
+}: {
+  min: number;
+  sec: number;
+  minMin?: number;
+  maxMin: number;
+  onMinChange: (n: number) => void;
+  onSecChange: (n: number) => void;
+}) {
+  const handle = (raw: string, cb: (n: number) => void) => {
+    if (raw === '') return;
+    const n = Number(raw);
+    if (Number.isNaN(n)) return;
+    cb(n);
+  };
+  return (
+    <div className="flex items-center bg-bg border border-border rounded-md focus-within:border-gold overflow-hidden font-mono">
+      <input
+        type="number"
+        min={minMin}
+        max={maxMin}
+        value={min}
+        onChange={(e) => handle(e.target.value, onMinChange)}
+        className="w-12 py-1 px-1 bg-transparent text-body text-ink outline-none text-center tabular"
+      />
+      <span className="text-ink-muted">:</span>
+      <input
+        type="number"
+        min={0}
+        max={59}
+        value={sec}
+        onChange={(e) => handle(e.target.value, onSecChange)}
+        className="w-12 py-1 px-1 bg-transparent text-body text-ink outline-none text-center tabular"
+      />
+    </div>
+  );
+}
+
+function ClockInput({ value, onChange }: { value: string; onChange: (hms: string) => void }) {
+  return (
+    <div className="flex items-center bg-bg border border-border rounded-md focus-within:border-gold overflow-hidden font-mono">
+      <input
+        type="time"
+        step="1"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="py-1 px-2 bg-transparent text-body text-ink outline-none tabular"
+      />
+    </div>
+  );
+}
+
+interface KpiHeroProps {
+  label: string;
+  value: string;
+  suffix: string;
+  sub: string;
+  highlight?: boolean;
+}
+
+// Card hero: numero giant mono, eyebrow uppercase, brass rule sotto al sub.
+// `highlight` disegna una linea brass verticale a sx (richiamo trim Riva).
+function KpiHero({ label, value, suffix, sub, highlight }: KpiHeroProps) {
+  return (
+    <div className="bg-surface-1 border border-border rounded-lg shadow-card p-8 relative overflow-hidden">
+      {highlight && <div className="absolute top-0 left-0 w-0.5 h-full bg-gold" />}
+      <p className="eyebrow mb-6">{label}</p>
+      <div className="flex items-baseline gap-3 mb-6">
+        <span className="font-mono text-display tabular text-ink leading-none">{value}</span>
+        <span className="text-eyebrow text-gold">{suffix}</span>
+      </div>
+      <div className="rule-brass pt-3">
+        <p className="text-caption text-ink-muted">{sub}</p>
+      </div>
+    </div>
+  );
+}
+
+function StatCard({ label, value, unit }: { label: string; value: string; unit?: string }) {
+  return (
+    <div className="bg-surface-1 border border-border rounded-md p-4">
+      <p className="eyebrow mb-3">{label}</p>
+      <div className="flex items-baseline gap-1.5">
+        <span className="font-mono text-2xl text-ink tabular leading-none">{value}</span>
+        {unit && <span className="text-caption text-ink-muted">{unit}</span>}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// ICONE — monoline 20px stroke 1.5
+// ============================================================
+
+function CompassIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+      <circle cx="12" cy="12" r="9" />
+      <polygon points="14.5,9.5 12,15 9.5,9.5 12,4" fill="currentColor" stroke="none" opacity="0.85" />
+    </svg>
+  );
+}
+
+function RotateIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+      <path d="M3 12a9 9 0 0 1 15.5-6.3M21 4v5h-5" />
+      <path d="M21 12a9 9 0 0 1-15.5 6.3M3 20v-5h5" />
+    </svg>
+  );
+}
+
+function ScatterIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+      <path d="M3 21h18" />
+      <path d="M3 3v18" />
+      <circle cx="8" cy="16" r="1.2" fill="currentColor" />
+      <circle cx="13" cy="11" r="1.2" fill="currentColor" />
+      <circle cx="17" cy="14" r="1.2" fill="currentColor" />
+      <circle cx="19" cy="6" r="1.2" fill="currentColor" />
+      <circle cx="11" cy="7" r="1.2" fill="currentColor" />
+    </svg>
+  );
+}
+
+function FlagIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+      <path d="M5 21V4" />
+      <path d="M5 4h11l-2 4 2 4H5" fill="currentColor" stroke="currentColor" opacity="0.85" />
+    </svg>
+  );
+}
+
+function ThemeIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z" />
+    </svg>
   );
 }
