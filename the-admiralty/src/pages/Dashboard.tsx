@@ -230,6 +230,22 @@ export default function Dashboard() {
     }));
   }, [visibleFilteredSessions]);
 
+  // Start analysis: usa l'highResTrack completo (NON filtrato), perche' il
+  // time-picker della vista Start sceglie un T=0 indipendente dal filtro
+  // globale. Filtrare a monte taglierebbe minuti utili a chi cerca lo sparo
+  // fuori dalla finestra correntemente selezionata.
+  const startSessions = useMemo(() => {
+    return sessions
+      .filter(s => s.status === 'ready' && s.visible && s.highResTrack && s.sessionInfo)
+      .map(s => ({
+        id: s.id,
+        label: s.label,
+        color: s.color,
+        trackData: s.highResTrack ?? [],
+        sessionStart: s.sessionInfo!.start_time,
+      }));
+  }, [sessions]);
+
   const LabMemoized = useMemo(() => {
     if (!telemetryData) return null;
     return (
@@ -616,9 +632,9 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* LA NUOVA VISTA START (Riceve i dati High-Res 1Hz!) */}
-          {currentView === 'start' && telemetryData.high_res_track && (
-             <StartAnalysis trackData={telemetryData.high_res_track} sessionStart={telemetryData.session_info.start_time} />
+          {/* LA NUOVA VISTA START — multi-atleta a T=0 condiviso */}
+          {currentView === 'start' && (
+             <StartAnalysis sessions={startSessions} />
           )}
 
           {currentView === 'overview' && (
