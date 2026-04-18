@@ -1,3 +1,83 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  :root {
+    /* Light theme — paper */
+    --bg: 248 247 245;
+    --surface-1: 255 255 255;
+    --surface-2: 251 250 247;
+    --border: 232 228 220;
+    --ink: 10 22 40;
+    --ink-2: 58 74 99;
+    --ink-muted: 122 132 153;
+    --gold: 168 127 71;
+    --gold-deep: 122 90 48;
+    --brass: 200 161 100;
+    --sage: 110 138 113;
+    --amber: 196 142 56;
+    --terra: 184 100 86;
+
+    --shadow-sm: 0 1px 2px rgba(10, 22, 40, 0.04);
+    --shadow-md: 0 1px 3px rgba(10, 22, 40, 0.06), 0 4px 12px rgba(10, 22, 40, 0.04);
+
+    --ease-varea: cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  .dark {
+    /* Dark theme — cockpit notturno */
+    --bg: 5 13 26;
+    --surface-1: 10 22 40;
+    --surface-2: 17 32 58;
+    --border: 28 46 74;
+    --ink: 245 241 230;       /* avorio caldo, non bianco — toglie "hacker mode" */
+    --ink-2: 168 179 196;
+    --ink-muted: 94 107 128;
+    --gold: 201 161 105;
+    --gold-deep: 168 127 71;
+    --brass: 232 206 160;
+    --sage: 127 168 133;
+    --amber: 212 162 76;
+    --terra: 201 116 98;
+
+    --shadow-sm: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 1px 2px rgba(0, 0, 0, 0.5);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(201, 161, 105, 0.08);
+  }
+
+  html {
+    font-family: 'Inter Tight', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    background-color: rgb(var(--bg));
+    color: rgb(var(--ink));
+    font-size: 0.875rem;
+    line-height: 1.375rem;
+  }
+
+  /* Numeri mono: tabular + slashed zero ovunque appaia .font-mono o .tabular */
+  .font-mono,
+  .tabular {
+    font-feature-settings: "tnum", "ss02";
+    font-variant-numeric: tabular-nums slashed-zero;
+  }
+
+  .font-serif {
+    font-feature-settings: "kern", "liga", "calt";
+  }
+}
+
+@layer components {
+  /* Filo brass: 1px gold/20 — richiamo al trim Riva su section header */
+  .rule-brass {
+    border-top: 1px solid rgb(var(--gold) / 0.2);
+  }
+
+  /* Eyebrow uppercase — label di sezione */
+  .eyebrow {
+    @apply text-eyebrow uppercase text-ink-muted;
+  }
+}
