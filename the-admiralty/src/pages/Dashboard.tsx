@@ -165,6 +165,35 @@ export default function Dashboard() {
     };
   }, [telemetryData, debouncedRange]);
 
+  // Sessioni pronte + visibili, filtrate per debouncedRange: consumata sia dalla
+  // mappa (layers[]) sia dal registro manovre (sessions[]). Memo dedicato cosi'
+  // togglare visibilita'/aggiungere atleti non rifa il lavoro in entrambi.
+  const visibleFilteredSessions = useMemo(() => {
+    const visible = sessions.filter(s => s.status === 'ready' && s.visible);
+    const range = debouncedRange;
+    const inRange = (ts: string | undefined) => {
+      if (!range || !ts) return true;
+      const t = parseIsoMs(ts);
+      if (Number.isNaN(t)) return true;
+      return t >= range.startMs && t <= range.endMs;
+    };
+    return visible.map(s => {
+      const trackData = (s.trackData ?? []).filter(p => inRange(p.timestamp));
+      const highResTrack = (s.highResTrack ?? []).filter(p => inRange(p.timestamp));
+      const maneuvers = (s.maneuvers ?? []).filter(m => inRange(m.timestamp));
+      const durationSecs = s.sessionInfo?.duration_seconds ?? 0;
+      return {
+        id: s.id,
+        label: s.label,
+        color: s.color,
+        durationSecs,
+        trackData,
+        highResTrack,
+        maneuvers,
+      };
+    });
+  }, [sessions, debouncedRange]);
+
   // Mappa multi-layer: una traccia per ogni sessione 'ready' e visibile, con
   // colore = colore atleta. Con una sola sessione visibile si torna alla
   // modalita' heatmap SOG storica. Decimazione (1200 pti totali) delegata a
@@ -175,32 +204,31 @@ export default function Dashboard() {
   // Decisione indipendente per atleta: confrontare una sessione breve 1Hz con
   // una lunga 0.2Hz non introduce bias — la decimazione finale uniforma tutto.
   const MapMemoized = useMemo(() => {
-    const visibleSessions = sessions.filter(s => s.status === 'ready' && s.visible);
-    if (visibleSessions.length === 0) return null;
-
-    const range = debouncedRange;
-    const inRange = (ts: string | undefined) => {
-      if (!range || !ts) return true;
-      const t = parseIsoMs(ts);
-      if (Number.isNaN(t)) return true;
-      return t >= range.startMs && t <= range.endMs;
-    };
-
-    const layers = visibleSessions.map(s => {
-      const durationSecs = s.sessionInfo?.duration_seconds ?? 0;
-      const useHighRes = durationSecs <= 3600 && (s.highResTrack?.length ?? 0) > 0;
-      const source = useHighRes ? (s.highResTrack ?? []) : (s.trackData ?? []);
+    if (visibleFilteredSessions.length === 0) return null;
+    const layers = visibleFilteredSessions.map(s => {
+      const useHighRes = s.durationSecs <= 3600 && s.highResTrack.length > 0;
       return {
         id: s.id,
         label: s.label,
         color: s.color,
-        points: source.filter(p => inRange(p.timestamp)),
+        points: useHighRes ? s.highResTrack : s.trackData,
       };
     });
-
-    const colorMode: 'speed' | 'session' = visibleSessions.length === 1 ? 'speed' : 'session';
+    const colorMode: 'speed' | 'session' = visibleFilteredSessions.length === 1 ? 'speed' : 'session';
     return <TelemetryMap layers={layers} colorMode={colorMode} />;
-  }, [sessions, debouncedRange]);
+  }, [visibleFilteredSessions]);
+
+  // Registro manovre: riceve le sessioni visibili gia' filtrate. Maneuvers
+  // gestisce internamente merge cronologico, filtro atleta e paginazione.
+  const maneuversSessions = useMemo(() => {
+    return visibleFilteredSessions.map(s => ({
+      id: s.id,
+      label: s.label,
+      color: s.color,
+      maneuvers: s.maneuvers,
+      highResTrack: s.highResTrack,
+    }));
+  }, [visibleFilteredSessions]);
 
   const LabMemoized = useMemo(() => {
     if (!telemetryData) return null;
@@ -568,11 +596,8 @@ export default function Dashboard() {
         {/* --- SCHERMATE DELL'APP --- */}
         <div className="flex-1 w-full">
           
-          {currentView === 'maneuvers' && segmentMetrics && (
-            <Maneuvers
-              maneuvers={segmentMetrics.filteredManeuvers}
-              highResTrack={segmentMetrics.filteredHighRes}
-            />
+          {currentView === 'maneuvers' && (
+            <Maneuvers sessions={maneuversSessions} />
           )}
 
           {currentView === 'lab' && (

@@ -23,7 +23,10 @@ export interface Maneuver {
   sog_min?: number;
   sog_out?: number;
   delta_v?: number;
-  recovery_time_s?: number;
+  // Numero di secondi (recupero riuscito) oppure marker di fallimento (es. "Fail", "X").
+  // Il backend usa la stringa quando l'atleta non recupera la velocita' target.
+  recovery_time_s?: number | string;
+  duration_s?: number | string;
   ttr_target_sog?: number;
   maneuverId?: string;
   legId?: string;
