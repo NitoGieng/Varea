@@ -8,18 +8,29 @@ interface Props {
   maneuver: any;
   highResTrack: any[];
   height?: number;
-  // Callback invocato con i secondi relativi al cambio mura mentre l'utente
-  // muove il mouse sul grafico. null quando il cursore esce dall'area.
+  // Secondi relativi al cambio mura mentre il mouse muove sul grafico.
+  // null quando il cursore esce dall'area.
   onHoverChange?: (relativeSeconds: number | null) => void;
 }
 
-// Finestra fissa attorno al timestamp del cambio mura: -20s / +40s (60s totali).
+// Finestra fissa attorno al cambio mura: -20s / +40s (60s totali).
 // Copre V.IN (mediana -10…-4s), V.MIN (entro +25s) e V.OUT (+12s da V.MIN).
 const PRE_WINDOW_S = 20;
 const POST_WINDOW_S = 40;
-
-// Offset V.OUT rispetto a V.MIN, fissato dal motore manovre.
 const V_OUT_OFFSET_S = 12;
+
+// Palette coerente con i token semantici del design system (hex hardcoded
+// perche' Recharts non legge le CSS vars). Default = tema dark.
+const COLOR_LINE = '#c9a169';   // gold
+const COLOR_GRID = 'rgba(201, 161, 105, 0.08)'; // gold/8 — gridlines quasi invisibili
+const COLOR_AXIS_DIM = '#5e6b80'; // ink-muted dark
+const COLOR_TICK = '#a8b3c4';
+const COLOR_MARKER = '#c9a169'; // active dot
+const COLOR_VIN = '#7fa885';    // sage
+const COLOR_VMIN = '#c97462';   // terra
+const COLOR_VOUT = '#e8cea0';   // brass
+const COLOR_TOOLTIP_BG = '#0a1628'; // surface-1 dark
+const COLOR_TOOLTIP_BORDER = 'rgba(201, 161, 105, 0.3)';
 
 const parseTs = (ts: string) => {
   if (!ts) return NaN;
@@ -58,7 +69,6 @@ export default function ManeuverSpeedChart({ maneuver, highResTrack, height = 28
 
     if (filtered.length === 0) return empty;
 
-    // Trovo il punto di V.MIN dentro la finestra: minimo assoluto (coerente col motore).
     let minPoint = filtered[0];
     for (const p of filtered) {
       if (p.sog < minPoint.sog) minPoint = p;
@@ -81,17 +91,25 @@ export default function ManeuverSpeedChart({ maneuver, highResTrack, height = 28
       ? 'CAMBIO MURA'
       : d.relativeTime < 0 ? `${Math.abs(d.relativeTime)}s prima` : `+${d.relativeTime}s`;
     return (
-      <div className="bg-navy-900 text-white p-3 rounded shadow-lg text-xs font-mono">
-        <p className="font-bold mb-1 text-gold">{label}</p>
-        <p className="text-sm font-bold">SOG: {d.sog.toFixed(1)} kts</p>
-        <p className="text-gray-400">COG: {d.cog.toFixed(0)}°</p>
+      <div
+        className="px-3 py-2 rounded-md font-mono tabular text-caption"
+        style={{
+          backgroundColor: COLOR_TOOLTIP_BG,
+          border: `1px solid ${COLOR_TOOLTIP_BORDER}`,
+          color: '#f5f1e6',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.45)',
+        }}
+      >
+        <p className="text-eyebrow uppercase tracking-eyebrow mb-1" style={{ color: COLOR_LINE }}>{label}</p>
+        <p className="text-body-lg leading-tight">SOG <span className="font-bold">{d.sog.toFixed(1)}</span> kts</p>
+        <p className="text-caption" style={{ color: COLOR_AXIS_DIM }}>COG {d.cog.toFixed(0)}°</p>
       </div>
     );
   };
 
   if (!chartData.length) {
     return (
-      <div className="w-full flex items-center justify-center text-gray-400 text-xs italic" style={{ height }}>
+      <div className="w-full flex items-center justify-center text-ink-muted text-caption italic" style={{ height }}>
         Nessun dato ad alta risoluzione in questa finestra.
       </div>
     );
@@ -102,7 +120,7 @@ export default function ManeuverSpeedChart({ maneuver, highResTrack, height = 28
       <ResponsiveContainer width="100%" height="100%">
         <LineChart
           data={chartData}
-          margin={{ top: 20, right: 30, left: 0, bottom: 0 }}
+          margin={{ top: 24, right: 30, left: 0, bottom: 0 }}
           onMouseMove={(state: any) => {
             if (!onHoverChange) return;
             const label = state?.activeLabel;
@@ -112,12 +130,13 @@ export default function ManeuverSpeedChart({ maneuver, highResTrack, height = 28
           }}
           onMouseLeave={() => onHoverChange?.(null)}
         >
-          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+          {/* Style 8D — gridlines quasi invisibili */}
+          <CartesianGrid strokeDasharray="2 4" vertical={false} stroke={COLOR_GRID} />
           <XAxis
             dataKey="relativeTime"
             tickFormatter={formatXAxis}
             minTickGap={25}
-            tick={{ fill: '#9ca3af', fontSize: 11, fontWeight: 'bold' }}
+            tick={{ fill: COLOR_TICK, fontSize: 10, fontFamily: 'JetBrains Mono, ui-monospace, monospace' }}
             axisLine={false}
             tickLine={false}
             type="number"
@@ -125,44 +144,56 @@ export default function ManeuverSpeedChart({ maneuver, highResTrack, height = 28
           />
           <YAxis
             domain={['auto', 'auto']}
-            tick={{ fill: '#9ca3af', fontSize: 11 }}
+            tick={{ fill: COLOR_TICK, fontSize: 10, fontFamily: 'JetBrains Mono, ui-monospace, monospace' }}
             axisLine={false}
             tickLine={false}
-            tickFormatter={(v) => `${v} kts`}
-            width={60}
+            tickFormatter={(v) => `${v}`}
+            width={40}
           />
-          <Tooltip content={<CustomTooltip />} />
+          <Tooltip content={<CustomTooltip />} cursor={{ stroke: COLOR_LINE, strokeOpacity: 0.3, strokeWidth: 1 }} />
 
-          {/* Cambio mura (t=0) */}
+          {/* Cambio mura (t=0) — gold dashed */}
           <ReferenceLine
             x={0}
-            stroke="#d4af37"
-            strokeWidth={2}
-            strokeDasharray="4 4"
-            label={{ position: 'top', value: 'MANOVRA', fill: '#d4af37', fontSize: 11, fontWeight: 'bold' }}
+            stroke={COLOR_LINE}
+            strokeWidth={1}
+            strokeDasharray="3 4"
+            label={{
+              position: 'top',
+              value: 'MANOVRA',
+              fill: COLOR_LINE,
+              fontSize: 10,
+              fontFamily: 'JetBrains Mono, monospace',
+            }}
           />
 
           {/* Soglia TTR 50% */}
           {ttrTarget !== null && (
             <ReferenceLine
               y={ttrTarget}
-              stroke="#9ca3af"
+              stroke={COLOR_AXIS_DIM}
               strokeWidth={1}
-              strokeDasharray="3 3"
-              label={{ position: 'right', value: `Target ${ttrTarget.toFixed(1)}`, fill: '#6b7280', fontSize: 10 }}
+              strokeDasharray="2 4"
+              label={{
+                position: 'right',
+                value: `Target ${ttrTarget.toFixed(1)}`,
+                fill: COLOR_AXIS_DIM,
+                fontSize: 9,
+                fontFamily: 'JetBrains Mono, monospace',
+              }}
             />
           )}
 
-          {/* V.IN: mediana della finestra -10…-4s */}
+          {/* V.IN: mediana -10…-4s */}
           {vInValue !== null && (
             <ReferenceDot
               x={-7}
               y={vInValue}
-              r={5}
-              fill="#10b981"
-              stroke="#fff"
+              r={4}
+              fill={COLOR_VIN}
+              stroke={COLOR_TOOLTIP_BG}
               strokeWidth={2}
-              label={{ value: 'V.IN', position: 'top', fill: '#10b981', fontSize: 10, fontWeight: 'bold' }}
+              label={{ value: 'V.IN', position: 'top', fill: COLOR_VIN, fontSize: 9, fontFamily: 'JetBrains Mono, monospace' }}
             />
           )}
 
@@ -171,11 +202,11 @@ export default function ManeuverSpeedChart({ maneuver, highResTrack, height = 28
             <ReferenceDot
               x={vMinTime}
               y={vMinValue}
-              r={6}
-              fill="#ef4444"
-              stroke="#fff"
+              r={5}
+              fill={COLOR_VMIN}
+              stroke={COLOR_TOOLTIP_BG}
               strokeWidth={2}
-              label={{ value: 'V.MIN', position: 'bottom', fill: '#ef4444', fontSize: 10, fontWeight: 'bold' }}
+              label={{ value: 'V.MIN', position: 'bottom', fill: COLOR_VMIN, fontSize: 9, fontFamily: 'JetBrains Mono, monospace' }}
             />
           )}
 
@@ -184,21 +215,22 @@ export default function ManeuverSpeedChart({ maneuver, highResTrack, height = 28
             <ReferenceDot
               x={vMinTime + V_OUT_OFFSET_S}
               y={vOutValue}
-              r={5}
-              fill="#3b82f6"
-              stroke="#fff"
+              r={4}
+              fill={COLOR_VOUT}
+              stroke={COLOR_TOOLTIP_BG}
               strokeWidth={2}
-              label={{ value: 'V.OUT', position: 'top', fill: '#3b82f6', fontSize: 10, fontWeight: 'bold' }}
+              label={{ value: 'V.OUT', position: 'top', fill: COLOR_VOUT, fontSize: 9, fontFamily: 'JetBrains Mono, monospace' }}
             />
           )}
 
+          {/* Linea SOG: stile 8D — sottile, gold, no fill */}
           <Line
             type="monotone"
             dataKey="sog"
-            stroke="#061325"
-            strokeWidth={2.5}
+            stroke={COLOR_LINE}
+            strokeWidth={1.5}
             dot={false}
-            activeDot={{ r: 5, fill: '#d4af37', stroke: '#fff', strokeWidth: 2 }}
+            activeDot={{ r: 4, fill: COLOR_MARKER, stroke: COLOR_TOOLTIP_BG, strokeWidth: 2 }}
           />
         </LineChart>
       </ResponsiveContainer>
