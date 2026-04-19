@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import type { ReactNode } from 'react';
-import ManeuverFootprint from '../components/charts/ManeuverFootprint';
 import TelemetryMap from '../components/charts/TelemetryMap';
 import Maneuvers from './Maneuvers';
 import StartAnalysis from './StartAnalysis';
+import Lab from './Lab';
 import type { SessionData, AnalyzeResponse } from '../types/telemetry';
 import { assignColor } from '../data/palette';
 import SessionsBar from '../components/SessionsBar';
@@ -206,11 +206,6 @@ export default function Dashboard() {
       highResTrack: s.highResTrack,
     }));
   }, [visibleFilteredSessions]);
-
-  const LabMemoized = useMemo(() => {
-    if (labSessions.length === 0) return null;
-    return <ManeuverFootprint sessions={labSessions} />;
-  }, [labSessions]);
 
   const genId = () =>
     (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
@@ -530,20 +525,7 @@ export default function Dashboard() {
           )}
 
           {currentView === 'lab' && (
-            <div className="px-6 lg:px-12 py-8 max-w-[1500px] mx-auto w-full h-[calc(100vh-180px)]">
-              <div className="bg-surface-1 border border-border rounded-lg shadow-card h-full flex flex-col overflow-hidden">
-                <div className="px-6 py-4 border-b border-border">
-                  <p className="eyebrow mb-1">Laboratorio</p>
-                  <h3 className="font-serif italic text-h2 text-ink leading-none">Traiettorie</h3>
-                  <p className="text-caption text-ink-muted mt-2">
-                    Seleziona una manovra per analizzare la radiografia XY.
-                  </p>
-                </div>
-                <div className="flex-1 relative flex flex-col overflow-hidden bg-bg">
-                  {LabMemoized}
-                </div>
-              </div>
-            </div>
+            <Lab sessions={labSessions} />
           )}
 
           {currentView === 'start' && (

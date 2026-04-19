@@ -3,8 +3,8 @@ import ManeuverSpeedChart from './ManeuverSpeedChart';
 import type { Maneuver, TrackPoint, HighResPoint } from '../../types/telemetry';
 
 // Una "lab session": tutto cio' che serve al footprint per un atleta.
-// trackData e' la traccia per il disegno geometrico (0.2Hz va bene, e' quello
-// che il vecchio Lab usava gia'); highResTrack e' per il grafico SOG a 1Hz.
+// trackData (0.2Hz) per il disegno geometrico, highResTrack (1Hz) per il
+// grafico SOG istante-per-istante.
 export interface LabSession {
   id: string;
   label: string;
@@ -18,70 +18,54 @@ interface ManeuverFootprintProps {
   sessions: LabSession[];
 }
 
-// Costante modulo: fallback stabile per l'highResTrack quando non c'e'
-// una sessione attiva. Usare `?? []` inline romperebbe la stabilita' di
-// riferimento tra render e farebbe partire memo a cascata.
+// Fallback stabile per highResTrack: `?? []` inline romperebbe ref equality
+// e farebbe partire memo a cascata.
 const EMPTY_HIGH_RES: HighResPoint[] = [];
+
+// Colori esadecimali coerenti col token sage/amber per gli elementi SVG
+// che non possono leggere le CSS vars (stroke/fill di Plotly-style).
+const FLY_COLOR = '#7fa885';   // sage
+const TOUCH_COLOR = '#d4a24c'; // amber
+const BOAT_GOLD = '#c9a169';   // gold dark
 
 // --- REGOLE FOILING SEMPLIFICATE (FLY vs TOUCH) ---
 const getFoilingStatus = (type: string, sogMin: number) => {
   const isTack = type.toLowerCase().includes('virata');
+  const threshold = isTack ? 8.5 : 12.0;
 
-  if (isTack) {
-    if (sogMin >= 8.5) return { label: 'FLY', color: 'text-[#10b981]', bg: 'bg-[#10b981]/10', border: 'border-[#10b981]/30' };
-    return { label: 'TOUCH', color: 'text-[#f59e0b]', bg: 'bg-[#f59e0b]/10', border: 'border-[#f59e0b]/30' };
-  } else {
-    // Strambata
-    if (sogMin >= 12.0) return { label: 'FLY', color: 'text-[#10b981]', bg: 'bg-[#10b981]/10', border: 'border-[#10b981]/30' };
-    return { label: 'TOUCH', color: 'text-[#f59e0b]', bg: 'bg-[#f59e0b]/10', border: 'border-[#f59e0b]/30' };
+  if (sogMin >= threshold) {
+    return { label: 'FLY' as const, color: 'text-sage', bg: 'bg-sage/10', border: 'border-sage/40' };
   }
+  return { label: 'TOUCH' as const, color: 'text-amber', bg: 'bg-amber/10', border: 'border-amber/40' };
 };
 
 export default function ManeuverFootprint({ sessions }: ManeuverFootprintProps) {
   const [mode, setMode] = useState<'FLY' | 'TOUCH'>('FLY');
   const [selectedIndex, setSelectedIndex] = useState(0);
-  // Secondi relativi al cambio mura: sincronizza il grafico SOG con l'icona
-  // barca nel footprint. null = mouse fuori dal grafico.
   const [hoveredTime, setHoveredTime] = useState<number | null>(null);
-  // Atleta selezionato nel Lab. In single-session resta sempre al primo;
-  // se l'atleta corrente scompare (toggle visibilita' / rimozione) si
-  // ricade sul primo disponibile via derivazione, non via effect.
   const [selectedAthleteId, setSelectedAthleteId] = useState<string | null>(null);
 
   const isMulti = sessions.length > 1;
 
-  // Derivazione robusta dell'atleta attivo: evita di inseguire il cambiamento
-  // di sessions[] con effect (cascading renders). Se l'id salvato non esiste
-  // piu' nel set corrente, ricade silenziosamente sul primo.
   const activeSession = useMemo(() => {
     if (sessions.length === 0) return null;
     const found = sessions.find(s => s.id === selectedAthleteId);
     return found ?? sessions[0];
   }, [sessions, selectedAthleteId]);
 
-  // Sorgenti dati dell'atleta attivo, riferite direttamente da activeSession
-  // per evitare ref instabili (`?? []` genererebbe array nuovi ad ogni render
-  // e invaliderebbe i dep array dei memo a valle).
   const highResTrack = activeSession?.highResTrack ?? EMPTY_HIGH_RES;
 
-  // --- 1. FILTRAGGIO E ORDINAMENTO FOILING ---
   const sortedManeuvers = useMemo(() => {
     const ms = activeSession?.maneuvers;
     if (!ms || ms.length === 0) return [];
-
     return [...ms]
       .filter(m => {
         const status = getFoilingStatus(m.type, Number(m.sog_min));
         return status.label === mode;
       })
-      // Ordiniamo in base alla velocità minima:
-      // Se cerchiamo i FLY, mettiamo in cima quelli più veloci (i migliori in assoluto).
-      // Se cerchiamo i TOUCH, mettiamo in cima quelli più lenti (i peggiori da analizzare).
       .sort((a, b) => mode === 'FLY' ? Number(b.sog_min) - Number(a.sog_min) : Number(a.sog_min) - Number(b.sog_min));
   }, [activeSession, mode]);
 
-  // Reset selezione quando cambia mode o atleta: la lista puo' avere
-  // lunghezza diversa e indici non comparabili tra cataloghi diversi.
   React.useEffect(() => { setSelectedIndex(0); }, [mode, activeSession?.id]);
   React.useEffect(() => { setHoveredTime(null); }, [selectedIndex, mode, activeSession?.id]);
 
@@ -99,7 +83,7 @@ export default function ManeuverFootprint({ sessions }: ManeuverFootprintProps) 
     }
   };
 
-  // --- 2. MOTORE GEOMETRICO BLINDATO E ALLINEATO ---
+  // --- MOTORE GEOMETRICO (invariato — restyle solo grafico) ---
   const renderData = useMemo(() => {
     const trackData = activeSession?.trackData;
     if (!activeManeuver || !trackData || trackData.length === 0) return null;
@@ -201,8 +185,7 @@ export default function ManeuverFootprint({ sessions }: ManeuverFootprintProps) 
     const viewBox = `${cx - maxDim / 2 - padding} ${cy - maxDim / 2 - padding} ${maxDim + padding * 2} ${maxDim + padding * 2}`;
     const baseStroke = (maxDim + padding * 2) / 120;
 
-    // Solo Verde (Fly) o Arancione (Touch)
-    const traceColor = activeStatus?.label === 'FLY' ? '#10b981' : '#f59e0b';
+    const traceColor = activeStatus?.label === 'FLY' ? FLY_COLOR : TOUCH_COLOR;
 
     return {
       points,
@@ -213,9 +196,6 @@ export default function ManeuverFootprint({ sessions }: ManeuverFootprintProps) 
     };
   }, [activeManeuver, activeSession, activeStatus]);
 
-  // Posizione interpolata dell'icona barca in base al tempo hover dal chart.
-  // Scorre linearmente tra due punti consecutivi del footprint (trackData 0.2Hz)
-  // per dare un movimento fluido anche se la traccia è a 5s di distanza.
   const boatMarker = useMemo(() => {
     if (hoveredTime == null || !renderData || !activeManeuver?.timestamp) return null;
     const t0 = new Date(activeManeuver.timestamp.replace(' ', 'T')).getTime();
@@ -243,18 +223,18 @@ export default function ManeuverFootprint({ sessions }: ManeuverFootprintProps) 
 
   if (sessions.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full bg-white text-xs text-gray-400 uppercase tracking-widest">
+      <div className="flex items-center justify-center h-full bg-surface-1 eyebrow">
         Nessuna sessione visibile
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-full bg-white">
-      {/* SELETTORE ATLETA — visibile solo in multi-sessione, a monte di tutto */}
+    <div className="flex flex-col h-full bg-surface-1">
+      {/* Selettore atleta — visibile solo in multi */}
       {isMulti && (
-        <div className="px-4 py-2 border-b border-gray-100 bg-white flex items-center gap-3 overflow-x-auto">
-          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest shrink-0">Atleta</span>
+        <div className="px-4 py-2 border-b border-border bg-surface-1 flex items-center gap-3 overflow-x-auto">
+          <span className="eyebrow shrink-0">Atleta</span>
           <div className="flex gap-2">
             {sessions.map(s => {
               const isActive = activeSession?.id === s.id;
@@ -262,18 +242,15 @@ export default function ManeuverFootprint({ sessions }: ManeuverFootprintProps) 
                 <button
                   key={s.id}
                   onClick={() => setSelectedAthleteId(s.id)}
-                  className={`px-3 py-1.5 text-xs font-bold uppercase tracking-widest rounded border transition-colors flex items-center gap-2 shrink-0 ${
+                  className={`px-3 py-1.5 text-eyebrow uppercase tracking-eyebrow rounded-md border transition-colors duration-220 ease-varea flex items-center gap-2 shrink-0 ${
                     isActive
-                      ? 'bg-navy-900 text-white border-navy-900'
-                      : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'
+                      ? 'bg-surface-2 text-ink border-gold'
+                      : 'bg-bg text-ink-2 border-border hover:border-ink-muted'
                   }`}
                 >
-                  <span
-                    className="inline-block w-2.5 h-2.5 rounded-full"
-                    style={{ backgroundColor: s.color }}
-                  />
+                  <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: s.color }} />
                   {s.label}
-                  <span className="text-[9px] font-mono opacity-60">
+                  <span className="font-mono tabular text-ink-muted opacity-70">
                     {s.maneuvers.length}
                   </span>
                 </button>
@@ -283,71 +260,88 @@ export default function ManeuverFootprint({ sessions }: ManeuverFootprintProps) 
         </div>
       )}
 
-      {/* HEADER CONTROLLI */}
-      <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
-        <div className="flex bg-white border border-gray-200 rounded p-1">
+      {/* Header controlli FLY/TOUCH */}
+      <div className="px-4 py-3 border-b border-border bg-surface-1 flex items-center justify-between">
+        <div className="flex bg-bg border border-border rounded-md p-0.5">
           <button
             onClick={() => setMode('FLY')}
-            className={`px-4 py-2 text-xs font-bold uppercase tracking-widest rounded transition-colors flex items-center gap-2 ${mode === 'FLY' ? 'bg-[#10b981] text-white shadow-sm' : 'text-gray-400 hover:bg-gray-50'}`}
+            className={`px-4 py-1.5 text-eyebrow uppercase tracking-eyebrow rounded-sm transition-colors duration-220 flex items-center gap-2 ${
+              mode === 'FLY' ? 'bg-sage/15 text-sage' : 'text-ink-muted hover:text-ink'
+            }`}
           >
-            <span>🟢</span> Manovre Fly
+            <span className="w-1.5 h-1.5 rounded-full bg-sage" />
+            Manovre Fly
           </button>
           <button
             onClick={() => setMode('TOUCH')}
-            className={`px-4 py-2 text-xs font-bold uppercase tracking-widest rounded transition-colors flex items-center gap-2 ${mode === 'TOUCH' ? 'bg-[#f59e0b] text-white shadow-sm' : 'text-gray-400 hover:bg-gray-50'}`}
+            className={`px-4 py-1.5 text-eyebrow uppercase tracking-eyebrow rounded-sm transition-colors duration-220 flex items-center gap-2 ${
+              mode === 'TOUCH' ? 'bg-amber/15 text-amber' : 'text-ink-muted hover:text-ink'
+            }`}
           >
-            <span>🟠</span> Manovre Touch
+            <span className="w-1.5 h-1.5 rounded-full bg-amber" />
+            Manovre Touch
           </button>
         </div>
-        <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">
-          {sortedManeuvers.length} Manovre in questa categoria
+        <span className="eyebrow">
+          {sortedManeuvers.length} in categoria
         </span>
       </div>
 
       <div className="flex flex-1 overflow-hidden min-h-[500px]">
-        {/* LISTA LATERALE FOILING */}
-        <div className="w-80 border-r border-gray-100 overflow-y-auto bg-white divide-y divide-gray-50 z-20 shadow-xl">
+        {/* Lista laterale */}
+        <div className="w-80 border-r border-border overflow-y-auto bg-surface-1 divide-y divide-border z-20">
           {sortedManeuvers.length === 0 ? (
-            <div className="p-6 text-center text-xs text-gray-400 uppercase tracking-widest mt-10">Nessuna manovra</div>
+            <div className="p-6 text-center eyebrow mt-10">Nessuna manovra</div>
           ) : (
             sortedManeuvers.map((m, i) => {
               const status = getFoilingStatus(m.type, Number(m.sog_min));
+              const isSelected = selectedIndex === i;
               return (
                 <button
                   key={i}
                   onClick={() => setSelectedIndex(i)}
-                  className={`w-full p-5 text-left transition-colors relative ${selectedIndex === i ? 'bg-navy-50' : 'hover:bg-gray-50'}`}
+                  className={`w-full p-5 text-left transition-colors duration-220 relative ${
+                    isSelected ? 'bg-surface-2' : 'hover:bg-surface-2/60'
+                  }`}
                 >
-                  {selectedIndex === i && <div className={`absolute left-0 top-0 w-1.5 h-full`} style={{ backgroundColor: renderData?.color }}></div>}
+                  {isSelected && (
+                    <div
+                      className="absolute left-0 top-0 w-0.5 h-full"
+                      style={{ backgroundColor: renderData?.color }}
+                    />
+                  )}
 
-                  <div className="flex justify-between items-start mb-2">
+                  <div className="flex justify-between items-start mb-3">
                     <div className="flex items-center gap-2">
-                      <div className="text-sm font-bold text-navy-900 uppercase tracking-widest">{m.type}</div>
-                      {/* BADGE FOILING */}
-                      <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded border ${status.color} ${status.bg} ${status.border}`}>
+                      <div className="text-eyebrow uppercase tracking-eyebrow text-ink">{m.type}</div>
+                      <span className={`text-[9px] font-medium uppercase tracking-eyebrow px-2 py-0.5 rounded-sm border ${status.color} ${status.bg} ${status.border}`}>
                         {status.label}
                       </span>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2 mb-2">
-                    <div className="bg-white border border-gray-100 rounded p-1.5 text-center shadow-sm">
-                      <div className="text-[9px] text-gray-400 uppercase tracking-widest">Vel Min</div>
-                      <div className={`text-sm font-bold font-serif ${status.color}`}>{(Number(m.sog_min) || 0).toFixed(1)} <span className="text-[10px] font-sans">kts</span></div>
+                  <div className="grid grid-cols-2 gap-2 mb-3">
+                    <div className="bg-bg border border-border rounded-md p-2 text-center">
+                      <div className="eyebrow mb-0.5">Vel min</div>
+                      <div className={`text-lg font-mono tabular ${status.color}`}>
+                        {(Number(m.sog_min) || 0).toFixed(1)}
+                        <span className="text-caption text-ink-muted ml-1">kts</span>
+                      </div>
                     </div>
-                    <div className="bg-white border border-gray-100 rounded p-1.5 text-center shadow-sm">
-                      <div className="text-[9px] text-gray-400 uppercase tracking-widest">Delta V</div>
-                      <div className={`text-sm font-bold font-serif ${(Number(m.delta_v) || 0) >= 0 ? 'text-[#10b981]' : 'text-[#f59e0b]'}`}>
-                        {(Number(m.delta_v) || 0) >= 0 ? '+' : ''}{(Number(m.delta_v) || 0).toFixed(1)} <span className="text-[10px] font-sans">kts</span>
+                    <div className="bg-bg border border-border rounded-md p-2 text-center">
+                      <div className="eyebrow mb-0.5">Δ V</div>
+                      <div className={`text-lg font-mono tabular ${(Number(m.delta_v) || 0) >= 0 ? 'text-sage' : 'text-amber'}`}>
+                        {(Number(m.delta_v) || 0) >= 0 ? '+' : ''}{(Number(m.delta_v) || 0).toFixed(1)}
+                        <span className="text-caption text-ink-muted ml-1">kts</span>
                       </div>
                     </div>
                   </div>
 
-                  <div className="text-[10px] text-gray-500 font-mono flex items-center justify-between">
+                  <div className="text-caption text-ink-muted font-mono tabular flex items-center justify-between">
                     <span>{formatTime(m.timestamp)}</span>
                     {m.leg_distance_nm !== undefined && (
-                      <span className="text-gold font-bold bg-gold/10 px-1.5 py-0.5 rounded border border-gold/20">
-                        Lato: {m.leg_distance_nm.toFixed(2)} NM
+                      <span className="text-gold bg-gold/10 px-1.5 py-0.5 rounded-sm border border-gold/20">
+                        Lato {m.leg_distance_nm.toFixed(2)} NM
                       </span>
                     )}
                   </div>
@@ -357,179 +351,179 @@ export default function ManeuverFootprint({ sessions }: ManeuverFootprintProps) 
           )}
         </div>
 
-        {/* COLONNA DESTRA: footprint XY + grafico SOG sotto */}
+        {/* Colonna destra: vasca XY + grafico SOG */}
         <div className="flex-1 flex flex-col overflow-hidden">
 
-        {/* L'ACQUA E LA TRAIETTORIA */}
-        <div className="flex-1 relative bg-[#061325] overflow-hidden flex items-center justify-center">
-          <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(#ffffff 1px, transparent 1px)', backgroundSize: '40px 40px' }}></div>
+          {/* La vasca scura — sempre dark, e' il "mare" indipendente dal tema */}
+          <div className="flex-1 relative bg-[#050d1a] overflow-hidden flex items-center justify-center">
+            <div
+              className="absolute inset-0 opacity-[0.06]"
+              style={{ backgroundImage: 'radial-gradient(#ffffff 1px, transparent 1px)', backgroundSize: '40px 40px' }}
+            />
 
-          {renderData ? (
-            <svg
-              className="w-full h-full p-8 drop-shadow-2xl"
-              viewBox={renderData.viewBox}
-              preserveAspectRatio="xMidYMid meet"
-            >
-              <line
-                x1="0" y1={renderData.viewBox.split(' ')[1]}
-                x2="0" y2="10000"
-                stroke="#ffffff" strokeWidth={renderData.baseStroke * 0.3} strokeDasharray="4,4" opacity="0.15"
-              />
-
-              {renderData.points.map((p, i) => {
-                if (i === 0) return null;
-                const prev = renderData.points[i - 1];
-                const dynamicStroke = renderData.baseStroke * Math.max(0.5, p.sog / 4);
-                const cometOpacity = 0.2 + (i / renderData.points.length) * 0.8;
-                return (
-                  <line
-                    key={i}
-                    x1={prev.x} y1={prev.y}
-                    x2={p.x} y2={p.y}
-                    stroke={renderData.color}
-                    strokeWidth={dynamicStroke}
-                    strokeLinecap="round"
-                    opacity={cometOpacity}
-                  />
-                );
-              })}
-
-              <g transform={`translate(${renderData.points[0].x}, ${renderData.points[0].y})`}>
-                <circle cx="0" cy="0" r={renderData.baseStroke * 1.5} fill="none" stroke="white" strokeWidth={renderData.baseStroke * 0.3} opacity="0.5" />
-                <text x={renderData.baseStroke * 3} y="0" fill="white" fontSize={renderData.baseStroke * 4} opacity="0.5" dominantBaseline="middle" className="font-bold tracking-widest uppercase">Inizio</text>
-              </g>
-
-              <g transform={`translate(${renderData.points[renderData.points.length - 1].x}, ${renderData.points[renderData.points.length - 1].y})`}>
-                <rect x={-renderData.baseStroke} y={-renderData.baseStroke} width={renderData.baseStroke * 2} height={renderData.baseStroke * 2} fill="white" opacity="0.8" />
-                <text x={renderData.baseStroke * 3} y="0" fill="white" fontSize={renderData.baseStroke * 4} opacity="0.8" dominantBaseline="middle" className="font-bold tracking-widest uppercase">Fine</text>
-              </g>
-
-              <g transform={`translate(${renderData.turnPoint.x}, ${renderData.turnPoint.y}) rotate(${renderData.turnPoint.visualHeading})`}>
-                <polygon points={`-${renderData.baseStroke * 1.5},${renderData.baseStroke * 2} 0,-${renderData.baseStroke * 3} ${renderData.baseStroke * 1.5},${renderData.baseStroke * 2} 0,${renderData.baseStroke}`} fill="white" />
-                <circle cx="0" cy="0" r={renderData.baseStroke * 5} fill="none" stroke={renderData.color} strokeWidth={renderData.baseStroke * 0.6} opacity="0.8" />
-              </g>
-
-              {/* ICONA BARCA SINCRONIZZATA CON L'HOVER DEL CHART SOG */}
-              {boatMarker && (
-                <g transform={`translate(${boatMarker.x}, ${boatMarker.y}) rotate(${boatMarker.heading})`} style={{ pointerEvents: 'none' }}>
-                  <circle cx="0" cy="0" r={renderData.baseStroke * 4} fill="#d4af37" opacity="0.18" />
-                  <circle cx="0" cy="0" r={renderData.baseStroke * 2.6} fill="none" stroke="#d4af37" strokeWidth={renderData.baseStroke * 0.4} opacity="0.9" />
-                  <polygon
-                    points={`-${renderData.baseStroke * 1.3},${renderData.baseStroke * 1.8} 0,-${renderData.baseStroke * 2.8} ${renderData.baseStroke * 1.3},${renderData.baseStroke * 1.8} 0,${renderData.baseStroke * 0.8}`}
-                    fill="#d4af37"
-                    stroke="white"
-                    strokeWidth={renderData.baseStroke * 0.35}
-                  />
-                </g>
-              )}
-
-            </svg>
-          ) : (
-            <div className="text-gray-400 text-xs uppercase tracking-widest z-10 bg-[#061325]/80 px-6 py-4 rounded border border-gray-700">
-              Traiettoria incompleta per questo segmento.
-            </div>
-          )}
-
-          {/* BADGE ATLETA — visibile solo in multi, per chiarire "di chi" stiamo
-              guardando il footprint quando l'occhio si perde tra tante tracce */}
-          {isMulti && activeSession && (
-            <div className="absolute top-6 right-6 pointer-events-none">
-              <div className="bg-[#040d1a]/80 backdrop-blur-md border border-white/10 px-3 py-2 rounded text-white flex items-center gap-2">
-                <span
-                  className="inline-block w-2.5 h-2.5 rounded-full"
-                  style={{ backgroundColor: activeSession.color }}
+            {renderData ? (
+              <svg
+                className="w-full h-full p-8"
+                viewBox={renderData.viewBox}
+                preserveAspectRatio="xMidYMid meet"
+              >
+                <line
+                  x1="0" y1={renderData.viewBox.split(' ')[1]}
+                  x2="0" y2="10000"
+                  stroke="#ffffff" strokeWidth={renderData.baseStroke * 0.3} strokeDasharray="4,4" opacity="0.12"
                 />
-                <span className="text-xs font-bold uppercase tracking-widest">{activeSession.label}</span>
-              </div>
-            </div>
-          )}
 
-          {activeManeuver && activeStatus && (
-            <div className="absolute top-6 left-6 flex gap-4 pointer-events-none">
-              <div className="bg-[#040d1a]/80 backdrop-blur-md border border-white/10 p-4 rounded text-white min-w-[100px]">
-                <div className="text-[9px] text-gray-400 uppercase tracking-widest mb-1">Vel Ingresso</div>
-                <div className="text-2xl font-serif">{(Number(activeManeuver.sog_in) || 0).toFixed(1)} <span className="text-xs">kts</span></div>
-              </div>
+                {renderData.points.map((p, i) => {
+                  if (i === 0) return null;
+                  const prev = renderData.points[i - 1];
+                  const dynamicStroke = renderData.baseStroke * Math.max(0.5, p.sog / 4);
+                  const cometOpacity = 0.2 + (i / renderData.points.length) * 0.8;
+                  return (
+                    <line
+                      key={i}
+                      x1={prev.x} y1={prev.y}
+                      x2={p.x} y2={p.y}
+                      stroke={renderData.color}
+                      strokeWidth={dynamicStroke}
+                      strokeLinecap="round"
+                      opacity={cometOpacity}
+                    />
+                  );
+                })}
 
-              {/* HUD CENTRALE DINAMICO FOILING */}
-              <div className={`bg-[#040d1a]/80 backdrop-blur-md border p-4 rounded min-w-[120px] shadow-2xl transition-colors duration-300 ${activeStatus.border}`}>
-                <div className={`text-[9px] uppercase font-bold tracking-widest mb-1 ${activeStatus.color}`}>
-                  Manovra {activeStatus.label}
+                <g transform={`translate(${renderData.points[0].x}, ${renderData.points[0].y})`}>
+                  <circle cx="0" cy="0" r={renderData.baseStroke * 1.5} fill="none" stroke="white" strokeWidth={renderData.baseStroke * 0.3} opacity="0.5" />
+                  <text x={renderData.baseStroke * 3} y="0" fill="white" fontSize={renderData.baseStroke * 4} opacity="0.5" dominantBaseline="middle" className="tracking-widest uppercase">Inizio</text>
+                </g>
+
+                <g transform={`translate(${renderData.points[renderData.points.length - 1].x}, ${renderData.points[renderData.points.length - 1].y})`}>
+                  <rect x={-renderData.baseStroke} y={-renderData.baseStroke} width={renderData.baseStroke * 2} height={renderData.baseStroke * 2} fill="white" opacity="0.8" />
+                  <text x={renderData.baseStroke * 3} y="0" fill="white" fontSize={renderData.baseStroke * 4} opacity="0.8" dominantBaseline="middle" className="tracking-widest uppercase">Fine</text>
+                </g>
+
+                <g transform={`translate(${renderData.turnPoint.x}, ${renderData.turnPoint.y}) rotate(${renderData.turnPoint.visualHeading})`}>
+                  <polygon
+                    points={`-${renderData.baseStroke * 1.5},${renderData.baseStroke * 2} 0,-${renderData.baseStroke * 3} ${renderData.baseStroke * 1.5},${renderData.baseStroke * 2} 0,${renderData.baseStroke}`}
+                    fill="white"
+                  />
+                  <circle cx="0" cy="0" r={renderData.baseStroke * 5} fill="none" stroke={renderData.color} strokeWidth={renderData.baseStroke * 0.6} opacity="0.8" />
+                </g>
+
+                {/* Icona barca sincronizzata col chart SOG */}
+                {boatMarker && (
+                  <g transform={`translate(${boatMarker.x}, ${boatMarker.y}) rotate(${boatMarker.heading})`} style={{ pointerEvents: 'none' }}>
+                    <circle cx="0" cy="0" r={renderData.baseStroke * 4} fill={BOAT_GOLD} opacity="0.18" />
+                    <circle cx="0" cy="0" r={renderData.baseStroke * 2.6} fill="none" stroke={BOAT_GOLD} strokeWidth={renderData.baseStroke * 0.4} opacity="0.9" />
+                    <polygon
+                      points={`-${renderData.baseStroke * 1.3},${renderData.baseStroke * 1.8} 0,-${renderData.baseStroke * 2.8} ${renderData.baseStroke * 1.3},${renderData.baseStroke * 1.8} 0,${renderData.baseStroke * 0.8}`}
+                      fill={BOAT_GOLD}
+                      stroke="white"
+                      strokeWidth={renderData.baseStroke * 0.35}
+                    />
+                  </g>
+                )}
+              </svg>
+            ) : (
+              <div className="text-white/60 eyebrow z-10 bg-black/40 px-6 py-4 rounded-md border border-white/10">
+                Traiettoria incompleta per questo segmento.
+              </div>
+            )}
+
+            {/* Badge atleta */}
+            {isMulti && activeSession && (
+              <div className="absolute top-6 right-6 pointer-events-none">
+                <div className="bg-[#040d1a]/85 backdrop-blur border border-white/10 px-3 py-2 rounded-md flex items-center gap-2">
+                  <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: activeSession.color }} />
+                  <span className="text-eyebrow uppercase tracking-eyebrow text-white">{activeSession.label}</span>
                 </div>
-                <div className={`text-3xl font-serif font-black ${activeStatus.color}`}>
-                  {(Number(activeManeuver.sog_min) || 0).toFixed(1)} <span className="text-xs font-sans font-normal">kts</span>
-                </div>
               </div>
+            )}
 
-              <div className="bg-[#040d1a]/80 backdrop-blur-md border border-white/10 p-4 rounded text-white min-w-[100px]">
-                <div className="text-[9px] text-gray-400 uppercase tracking-widest mb-1">Vel Uscita</div>
-                <div className="text-2xl font-serif">{(Number(activeManeuver.sog_out) || 0).toFixed(1)} <span className="text-xs">kts</span></div>
-              </div>
-            </div>
-          )}
-
-          {renderData && activeManeuver && (
-            <div className="absolute bottom-6 right-6 pointer-events-none">
-              <div className="bg-[#040d1a]/80 backdrop-blur-md border border-white/10 p-5 rounded text-white text-right shadow-xl min-w-[200px]">
-                <div className="flex flex-col items-end gap-4">
-
-                  <div>
-                    <div className="text-[9px] text-gray-400 uppercase tracking-widest mb-1 flex items-center justify-end gap-1">
-                       <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                       Orario Manovra
-                    </div>
-                    <div className="text-xl font-serif tracking-wider text-white">
-                      {formatTime(activeManeuver.timestamp || renderData.turnPoint.time)}
-                    </div>
+            {/* HUD ingresso/centro/uscita */}
+            {activeManeuver && activeStatus && (
+              <div className="absolute top-6 left-6 flex gap-3 pointer-events-none">
+                <div className="bg-[#040d1a]/85 backdrop-blur border border-white/10 px-4 py-3 rounded-md text-white min-w-[110px]">
+                  <div className="text-[9px] text-white/50 uppercase tracking-eyebrow mb-1">Vel ingresso</div>
+                  <div className="text-2xl font-mono tabular">
+                    {(Number(activeManeuver.sog_in) || 0).toFixed(1)}
+                    <span className="text-caption text-white/60 ml-1">kts</span>
                   </div>
+                </div>
 
-                  {activeManeuver.leg_distance_nm !== undefined && (
-                    <>
-                      <div className="w-full border-t border-white/10"></div>
-                      <div>
-                        <div className="text-[9px] text-gray-400 uppercase tracking-widest mb-1 flex items-center justify-end gap-1">
-                           <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path></svg>
-                           Lunghezza Lato Precedente
-                        </div>
-                        <div className="text-lg font-serif tracking-wider text-gold">
-                          {activeManeuver.leg_distance_nm.toFixed(2)} <span className="text-xs text-gray-400 font-sans">NM</span>
-                        </div>
+                <div className={`bg-[#040d1a]/85 backdrop-blur border px-4 py-3 rounded-md min-w-[130px] ${activeStatus.border}`}>
+                  <div className={`text-[9px] uppercase tracking-eyebrow mb-1 ${activeStatus.color}`}>
+                    Manovra {activeStatus.label}
+                  </div>
+                  <div className={`text-3xl font-mono tabular leading-none ${activeStatus.color}`}>
+                    {(Number(activeManeuver.sog_min) || 0).toFixed(1)}
+                    <span className="text-caption text-white/60 ml-1">kts</span>
+                  </div>
+                </div>
+
+                <div className="bg-[#040d1a]/85 backdrop-blur border border-white/10 px-4 py-3 rounded-md text-white min-w-[110px]">
+                  <div className="text-[9px] text-white/50 uppercase tracking-eyebrow mb-1">Vel uscita</div>
+                  <div className="text-2xl font-mono tabular">
+                    {(Number(activeManeuver.sog_out) || 0).toFixed(1)}
+                    <span className="text-caption text-white/60 ml-1">kts</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* HUD orario + lato + coordinate */}
+            {renderData && activeManeuver && (
+              <div className="absolute bottom-6 right-6 pointer-events-none">
+                <div className="bg-[#040d1a]/85 backdrop-blur border border-white/10 p-5 rounded-md text-white text-right min-w-[200px]">
+                  <div className="flex flex-col items-end gap-4">
+
+                    <div>
+                      <div className="text-[9px] text-white/50 uppercase tracking-eyebrow mb-1">Orario manovra</div>
+                      <div className="text-lg font-mono tabular text-white">
+                        {formatTime(activeManeuver.timestamp || renderData.turnPoint.time)}
                       </div>
-                    </>
-                  )}
+                    </div>
 
-                  <div className="w-full border-t border-white/10"></div>
-                  <div>
-                    <div className="text-[9px] text-gray-500 uppercase tracking-widest flex items-center justify-end gap-1 mb-1">
-                       Coordinate
+                    {activeManeuver.leg_distance_nm !== undefined && (
+                      <>
+                        <div className="w-full border-t border-white/10" />
+                        <div>
+                          <div className="text-[9px] text-white/50 uppercase tracking-eyebrow mb-1">Lato precedente</div>
+                          <div className="text-lg font-mono tabular text-gold">
+                            {activeManeuver.leg_distance_nm.toFixed(2)}
+                            <span className="text-caption text-white/60 ml-1">NM</span>
+                          </div>
+                        </div>
+                      </>
+                    )}
+
+                    <div className="w-full border-t border-white/10" />
+                    <div>
+                      <div className="text-[9px] text-white/50 uppercase tracking-eyebrow mb-1">Coordinate</div>
+                      <div className="text-caption font-mono tabular text-white/60">
+                        {renderData.turnPoint.lat.toFixed(5)}° N, {renderData.turnPoint.lon.toFixed(5)}° E
+                      </div>
                     </div>
-                    <div className="text-[10px] font-mono text-gray-400">
-                      {renderData.turnPoint.lat.toFixed(5)}° N, {renderData.turnPoint.lon.toFixed(5)}° E
-                    </div>
+
                   </div>
-
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
-        </div>
-
-        {/* GRAFICO SOG ISTANTANEO — finestra -20s / +40s dal cambio mura */}
-        <div className="border-t border-gray-200 bg-white px-6 py-3 shrink-0">
-          <div className="flex items-baseline justify-between mb-1">
-            <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-              Velocità istante-per-istante
-            </h4>
-            <span className="text-[9px] text-gray-400 font-mono">-20s / +40s</span>
           </div>
-          <ManeuverSpeedChart
-            maneuver={activeManeuver}
-            highResTrack={highResTrack}
-            height={200}
-            onHoverChange={setHoveredTime}
-          />
-        </div>
+
+          {/* Grafico SOG istantaneo */}
+          <div className="border-t border-border bg-surface-1 px-6 py-3 shrink-0">
+            <div className="flex items-baseline justify-between mb-1">
+              <h4 className="eyebrow">Velocità istante-per-istante</h4>
+              <span className="text-caption text-ink-muted font-mono tabular">−20s / +40s</span>
+            </div>
+            <ManeuverSpeedChart
+              maneuver={activeManeuver}
+              highResTrack={highResTrack}
+              height={200}
+              onHoverChange={setHoveredTime}
+            />
+          </div>
 
         </div>
       </div>
