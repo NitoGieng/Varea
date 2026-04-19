@@ -44,12 +44,19 @@ export default function Maneuvers({ sessions }: Props) {
 
   const isMulti = sessions.length > 1;
 
+  // Timestamp dal backend sono UTC (spec .FIT). Append 'Z' per parse corretto,
+  // poi getHours/Minutes/Seconds ritornano nel fuso del browser (=fuso di
+  // regata quando l'utente rivede dal proprio device).
   const safeTime = (ts: string | undefined) => {
     if (!ts) return '--:--:--';
     try {
-      if (ts.includes('T')) return ts.split('T')[1].substring(0, 8);
-      if (ts.includes(' ')) return ts.split(' ')[1].substring(0, 8);
-      return ts;
+      const norm = ts.replace(' ', 'T');
+      const d = new Date(norm.endsWith('Z') ? norm : norm + 'Z');
+      if (isNaN(d.getTime())) return '--:--:--';
+      const hh = String(d.getHours()).padStart(2, '0');
+      const mm = String(d.getMinutes()).padStart(2, '0');
+      const ss = String(d.getSeconds()).padStart(2, '0');
+      return `${hh}:${mm}:${ss}`;
     } catch {
       return '--:--:--';
     }

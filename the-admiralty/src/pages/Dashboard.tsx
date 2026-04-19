@@ -334,11 +334,15 @@ export default function Dashboard() {
   const durationM = Math.floor((session_info.duration_seconds % 3600) / 60);
 
   // ---------- DERIVATI UI DEL FILTRO TEMPORALE ----------
-  const fmtClockUtc = (ms: number) => {
+  // Gli orari display sono nel fuso del browser (= fuso di regata per chi
+  // rivede le proprie sessioni sul proprio device). I file .FIT memorizzano
+  // UTC: parseIsoMs aggiunge 'Z' per ottenere l'epoch corretto, poi qui
+  // applichiamo il fuso locale per la resa a schermo.
+  const fmtClockLocal = (ms: number) => {
     const d = new Date(ms);
-    const hh = String(d.getUTCHours()).padStart(2, '0');
-    const mm = String(d.getUTCMinutes()).padStart(2, '0');
-    const ss = String(d.getUTCSeconds()).padStart(2, '0');
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    const ss = String(d.getSeconds()).padStart(2, '0');
     return `${hh}:${mm}:${ss}`;
   };
   const toMinSec = (ms: number, baseMs: number) => {
@@ -351,8 +355,8 @@ export default function Dashboard() {
   const displayEnd = pendingRange && primaryStartMs != null
     ? toMinSec(pendingRange.endMs, primaryStartMs)
     : { min: 0, sec: 0 };
-  const absStartDisplay = pendingRange ? fmtClockUtc(pendingRange.startMs) : '';
-  const absEndDisplay = pendingRange ? fmtClockUtc(pendingRange.endMs) : '';
+  const absStartDisplay = pendingRange ? fmtClockLocal(pendingRange.startMs) : '';
+  const absEndDisplay = pendingRange ? fmtClockLocal(pendingRange.endMs) : '';
   const maxRelMinutes = globalBounds && primaryStartMs != null
     ? Math.max(0, Math.ceil((globalBounds.endMs - primaryStartMs) / 60000))
     : 0;
@@ -373,7 +377,10 @@ export default function Dashboard() {
       endMs: newEnd,
     } : prev);
   };
-  const parseClockUtc = (hms: string, referenceMs: number): number | null => {
+  // Parsa un HH:MM:SS digitato dall'utente come orario LOCALE, usando la
+  // data locale della referenza (serve per non saltare giorno quando il
+  // fuso sposta l'istante attraverso mezzanotte UTC).
+  const parseClockLocal = (hms: string, referenceMs: number): number | null => {
     const parts = hms.split(':');
     if (parts.length < 2) return null;
     const hh = Number(parts[0]);
@@ -381,11 +388,11 @@ export default function Dashboard() {
     const ss = parts[2] != null ? Number(parts[2]) : 0;
     if ([hh, mm, ss].some(n => Number.isNaN(n))) return null;
     const ref = new Date(referenceMs);
-    return Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth(), ref.getUTCDate(), hh, mm, ss);
+    return new Date(ref.getFullYear(), ref.getMonth(), ref.getDate(), hh, mm, ss).getTime();
   };
   const setStartAbsolute = (hms: string) => {
     if (!pendingRange) return;
-    const newStart = parseClockUtc(hms, pendingRange.startMs);
+    const newStart = parseClockLocal(hms, pendingRange.startMs);
     if (newStart == null) return;
     setPendingRange(prev => prev ? {
       startMs: newStart,
@@ -394,7 +401,7 @@ export default function Dashboard() {
   };
   const setEndAbsolute = (hms: string) => {
     if (!pendingRange) return;
-    let newEnd = parseClockUtc(hms, pendingRange.endMs);
+    let newEnd = parseClockLocal(hms, pendingRange.endMs);
     if (newEnd == null) return;
     if (newEnd <= pendingRange.startMs) newEnd += 24 * 60 * 60 * 1000;
     setPendingRange(prev => prev ? {

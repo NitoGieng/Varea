@@ -79,33 +79,38 @@ export default function StartAnalysis({ sessions }: Props) {
   const primary = sessions[0];
   const isMulti = sessions.length > 1;
 
-  // Default T=0 = ora di start della prima sessione (HH:MM:SS UTC). L'input
-  // type="time" usa la stessa convenzione UTC del filtro globale (Step 3),
-  // cosi' i due tempi restano comparabili tra le viste.
+  // Default T=0 = ora di start della prima sessione in fuso LOCALE del
+  // browser (=fuso di regata). Coerente col filtro globale del Dashboard
+  // e con il Registro Manovre, così i tempi restano comparabili tra viste.
   const [startTimeInput, setStartTimeInput] = useState<string>(() => {
     if (!primary) return '12:00:00';
     try {
       const norm = primary.sessionStart.replace(' ', 'T');
       const d = new Date(norm.endsWith('Z') ? norm : norm + 'Z');
-      const hh = String(d.getUTCHours()).padStart(2, '0');
-      const mm = String(d.getUTCMinutes()).padStart(2, '0');
-      const ss = String(d.getUTCSeconds()).padStart(2, '0');
+      const hh = String(d.getHours()).padStart(2, '0');
+      const mm = String(d.getMinutes()).padStart(2, '0');
+      const ss = String(d.getSeconds()).padStart(2, '0');
       return `${hh}:${mm}:${ss}`;
     } catch {
       return '12:00:00';
     }
   });
 
-  // Epoch UTC del T=0: data dalla sessione primaria + HH:MM:SS digitato.
-  // Tutti gli atleti sono allineati a questo istante; se A e B hanno
-  // sessioni in giorni diversi (caso patologico) il render di B sara' vuoto,
-  // il che e' corretto — la UI mostra "fuori finestra" nella stat card.
+  // Epoch del T=0: prendiamo la data LOCALE della sessione primaria (tenendo
+  // conto che sessionStart è in UTC) e applichiamo HH:MM:SS digitato come
+  // orario locale. Così typing "15:38:28" in CEST → epoch corretto.
   const tZeroEpoch = useMemo<number | null>(() => {
     if (!primary) return null;
     try {
-      const baseDateStr = primary.sessionStart.split(' ')[0] || primary.sessionStart.split('T')[0];
-      const d = new Date(`${baseDateStr}T${startTimeInput}Z`);
-      const ms = d.getTime();
+      const norm = primary.sessionStart.replace(' ', 'T');
+      const sessionStartMs = new Date(norm.endsWith('Z') ? norm : norm + 'Z').getTime();
+      if (Number.isNaN(sessionStartMs)) return null;
+      const ref = new Date(sessionStartMs);
+      const parts = startTimeInput.split(':').map(Number);
+      const hh = Number.isFinite(parts[0]) ? parts[0] : 0;
+      const mm = Number.isFinite(parts[1]) ? parts[1] : 0;
+      const ss = Number.isFinite(parts[2]) ? parts[2] : 0;
+      const ms = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate(), hh, mm, ss).getTime();
       return Number.isNaN(ms) ? null : ms;
     } catch {
       return null;

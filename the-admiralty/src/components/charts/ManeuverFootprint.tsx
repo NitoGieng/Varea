@@ -75,7 +75,10 @@ export default function ManeuverFootprint({ sessions }: ManeuverFootprintProps) 
   const formatTime = (ts: string) => {
     if (!ts) return 'N/D';
     try {
-      const date = new Date(ts.replace(' ', 'T'));
+      // Backend emette UTC (spec .FIT). Append 'Z' per epoch corretto, poi
+      // toLocaleTimeString converte nel fuso del browser (=fuso di regata).
+      const norm = ts.replace(' ', 'T');
+      const date = new Date(norm.endsWith('Z') ? norm : norm + 'Z');
       if (isNaN(date.getTime())) return ts;
       return date.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     } catch {
