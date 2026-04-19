@@ -9,18 +9,33 @@ from typing import List, Dict, Any
 _CLASS_WINDOW_LAG_S = 8
 _CLASS_WINDOW_LEN_S = 12
 
-# Sanity-gate fisica sul Δ-COG: un flip di mure senza reale rotazione della
-# prua non e' una manovra, e' il TWD che oscilla attorno a un COG costante.
-# Una virata reale ha Δcog≈70-90°, una strambata ≈80-100°. Soglia a 45°
-# scarta rumore lasciando ampio margine al caso "manovra piccola in wave".
-# Le finestre pre/post [i-10,i-5] e [i+5,i+10] sono 5s ciascuna a 1Hz: stanno
-# fuori dal cono del turno stesso (dove il COG ruota) ma vicine abbastanza
-# da campionare la direzione di rotta effettiva prima e dopo.
-_COG_GATE_DEG = 45.0
+# Sanity-gate fisica sul Δ-COG a due livelli.
+# HARD (45°): manovre ampie, accettate incondizionatamente.
+# SOFT (25°): sotto questa soglia ogni flip di mure e' rumore TWD — scartato
+# sempre. In mezzo [25°,45°] l'accettazione richiede una firma di crossing
+# fisico (cross_min<25° o cross_max>155°): strambate reali in wave-riding
+# hanno spesso Δcog attorno ai 40° ma firma di crossing a poppa piena
+# inequivocabile.
+# Finestre pre/post [i-10,i-5] e [i+5,i+10] a 1Hz: 5s ciascuna, fuori dal
+# cono del turno dove il COG ruota, vicine abbastanza da campionare la
+# direzione di rotta stabile prima e dopo.
+_COG_GATE_HARD = 45.0
+_COG_GATE_SOFT = 25.0
 _COG_PRE_LO = 10
 _COG_PRE_HI = 5
 _COG_POST_LO = 5
 _COG_POST_HI = 10
+
+# Bande di riconoscimento del crossing fisico.
+# Virata: twa_signed attraversa 0° → min(|TWA|) < 25°.
+# Strambata: twa_signed attraversa ±180° → max(|TWA|) > 155°.
+# Per il gate soft (Δcog∈[25,45]) richiedo ≥2 sample in banda per contarlo
+# come segnale reale, non un singolo sample rumoroso: un glitch TWD
+# transitorio puo' produrre un min/max sotto/sopra soglia per un istante
+# senza che ci sia un vero passaggio fisico.
+_CROSS_VIRATA_DEG = 25.0
+_CROSS_STRAMBATA_DEG = 155.0
+_CROSS_SIGNAL_MIN_SAMPLES = 2
 
 # Log diagnostico: attivare con env var VAREA_DEBUG_MANEUVERS=1 prima di
 # lanciare api.py / main.py / streamlit. Stampa una riga per manovra con
@@ -182,65 +197,12 @@ class ManeuverAnalyzer:
             if i - last_man_idx < self.min_leg_time:
                 continue
 
-            # Sanity-gate fisica: una manovra reale ruota il COG di ≥45°.
-            # Un flip di mure senza rotazione del COG (Δcog piccolo) e' sempre
-            # TWD che oscilla attorno a un COG stabile, non una manovra vera.
-            # Senza questo gate, anche con il filtro mure blindato, un TWD
-            # rumoroso a poppa piena o vicino al wrap giornaliero 350°/10°
-            # puo' generare flip geometricamente corretti ma fisicamente
-            # assurdi. Taglio qui prima della classificazione, che e' costosa.
-            pre_cog_lo = max(0, i - _COG_PRE_LO)
-            pre_cog_hi = max(0, i - _COG_PRE_HI)
-            post_cog_lo = min(len(df), i + _COG_POST_LO)
-            post_cog_hi = min(len(df), i + _COG_POST_HI)
-            pre_cog_win = df['cog_deg'].iloc[pre_cog_lo:pre_cog_hi].to_numpy()
-            post_cog_win = df['cog_deg'].iloc[post_cog_lo:post_cog_hi].to_numpy()
-
-            # Richiedo entrambe le finestre piene: a inizio/fine sessione il
-            # gate non puo' essere applicato e accetto la manovra (preserva
-            # backward compat su file corti / manovre ai bordi). Una finestra
-            # monca tenderebbe a sottostimare il Δcog rendendo il gate ostile.
-            if len(pre_cog_win) >= 3 and len(post_cog_win) >= 3:
-                pre_cog = self._circular_mean_deg(pre_cog_win)
-                post_cog = self._circular_mean_deg(post_cog_win)
-                delta_cog = abs(self.angular_diff(post_cog, pre_cog))
-                if delta_cog < _COG_GATE_DEG:
-                    if _DEBUG_CLASS:
-                        print(
-                            f"[maneuvers] i={i} ts={idx_timestamp} "
-                            f"SCARTATA: Δcog={delta_cog:.1f}° < {_COG_GATE_DEG}° "
-                            f"(pre={pre_cog:.1f}° post={post_cog:.1f}°)",
-                            flush=True,
-                        )
-                    continue
-
-            # Classificazione robusta: voto a maggioranza su 4 segnali
-            # indipendenti (TWA pre, TWA post, andatura pre, andatura post).
-            # Disaccoppia la decisione da un singolo valore di TWD che può
-            # essere mal stimato localmente — con 4 segnali serve che almeno
-            # 3 convergano sull'etichetta sbagliata per confondere il voto.
-            pre_lo = max(0, i - _CLASS_WINDOW_LAG_S - _CLASS_WINDOW_LEN_S)
-            pre_hi = max(0, i - _CLASS_WINDOW_LAG_S)
-            post_lo = min(len(df), i + _CLASS_WINDOW_LAG_S)
-            post_hi = min(len(df), i + _CLASS_WINDOW_LAG_S + _CLASS_WINDOW_LEN_S)
-
+            # Finestra di crossing fisico: centrata sul momento fisico della
+            # manovra (i - lag_filtro ≈ i-6), allargata a [i-15, i+5]. Gli
+            # estremi di questa finestra sono la firma diretta del tipo di
+            # manovra (0° = virata, ±180° = strambata) e guidano SIA il gate
+            # Δ-COG a due livelli SIA la classificazione crossing-first.
             twa_abs_series = df['twa_signed'].abs()
-            andatura_series = df['andatura']
-            pre_twa = twa_abs_series.iloc[pre_lo:pre_hi]
-            post_twa = twa_abs_series.iloc[post_lo:post_hi]
-            pre_and = andatura_series.iloc[pre_lo:pre_hi]
-            post_and = andatura_series.iloc[post_lo:post_hi]
-
-            # Firma fisica del crossing: durante una virata twa_signed attraversa
-            # 0° (prua nel vento), durante una strambata attraversa ±180° (poppa
-            # nel vento). Cerco il crossing in una finestra centrata sul momento
-            # fisico (i - lag_filtro_schmitt ≈ i-6), allargata: [i-15, i+5].
-            #
-            # Non uso min/max: un solo sample spurio (glitch COG da diff GPS
-            # su frame quasi fermi, o salto di interpolazione TWD) farebbe
-            # scattare la firma. Conto invece quanti sample cadono nelle bande
-            # 0-30° e 150-180° e richiedo ≥3 sample (3 secondi a 1Hz) perché
-            # sia un vero passaggio, con ≤1 sample nella banda opposta.
             cross_lo = max(0, i - 15)
             cross_hi = min(len(df), i + 5)
             cross_window = twa_abs_series.iloc[cross_lo:cross_hi]
@@ -248,68 +210,128 @@ class ManeuverAnalyzer:
             cross_max = float(cross_window.max()) if len(cross_window) else float('nan')
             count_near_zero = int((cross_window < 30).sum())
             count_near_pi = int((cross_window > 150).sum())
+            # Conteggio persistente nelle bande di crossing (sotto 25° o sopra
+            # 155°). Il min/max singolo puo' essere un glitch: richiedo ≥2
+            # sample per qualificare come segnale fisico reale. Questo chiude
+            # il gate soft ai flip di mure in TWD rumoroso che prima
+            # passavano per un singolo sample sotto/sopra soglia.
+            n_cross_virata = int((cross_window < _CROSS_VIRATA_DEG).sum())
+            n_cross_strambata = int((cross_window > _CROSS_STRAMBATA_DEG).sum())
+            has_crossing_signal = (
+                len(cross_window) >= 5 and
+                (n_cross_virata >= _CROSS_SIGNAL_MIN_SAMPLES or
+                 n_cross_strambata >= _CROSS_SIGNAL_MIN_SAMPLES)
+            )
 
-            votes: List[str] = []
+            # Sanity-gate fisica a due livelli. Un flip di mure senza rotazione
+            # del COG e' sempre TWD rumoroso. Ma strambate reali in wave-riding
+            # hanno Δcog attorno ai 40°, sotto la soglia HARD di 45° — con la
+            # firma di crossing passano comunque. Sotto SOFT 25°: sempre rumore.
+            pre_cog_lo = max(0, i - _COG_PRE_LO)
+            pre_cog_hi = max(0, i - _COG_PRE_HI)
+            post_cog_lo = min(len(df), i + _COG_POST_LO)
+            post_cog_hi = min(len(df), i + _COG_POST_HI)
+            pre_cog_win = df['cog_deg'].iloc[pre_cog_lo:pre_cog_hi].to_numpy()
+            post_cog_win = df['cog_deg'].iloc[post_cog_lo:post_cog_hi].to_numpy()
 
-            # Voti 1-2: mediana di |TWA| pre e post (soglia 90°)
-            if len(pre_twa) >= 4:
-                votes.append('Virata' if float(pre_twa.median()) < 90 else 'Strambata')
-            if len(post_twa) >= 4:
-                votes.append('Virata' if float(post_twa.median()) < 90 else 'Strambata')
-
-            # Voti 3-4: andatura prevalente pre/post (Traverso astensione)
-            for window in (pre_and, post_and):
-                if len(window) == 0:
+            # Finestre piene richieste: a inizio/fine sessione accetto senza
+            # gate (backward compat su manovre ai bordi / file corti).
+            if len(pre_cog_win) >= 3 and len(post_cog_win) >= 3:
+                pre_cog = self._circular_mean_deg(pre_cog_win)
+                post_cog = self._circular_mean_deg(post_cog_win)
+                delta_cog = abs(self.angular_diff(post_cog, pre_cog))
+                if delta_cog < _COG_GATE_SOFT:
+                    if _DEBUG_CLASS:
+                        print(
+                            f"[maneuvers] i={i} ts={idx_timestamp} "
+                            f"SCARTATA: Δcog={delta_cog:.1f}° < {_COG_GATE_SOFT}° "
+                            f"(pre={pre_cog:.1f}° post={post_cog:.1f}°)",
+                            flush=True,
+                        )
                     continue
-                bolina = int((window == 'Bolina').sum())
-                poppa = int((window == 'Lasco/Poppa').sum())
-                if bolina > poppa:
-                    votes.append('Virata')
-                elif poppa > bolina:
-                    votes.append('Strambata')
+                if delta_cog < _COG_GATE_HARD and not has_crossing_signal:
+                    if _DEBUG_CLASS:
+                        print(
+                            f"[maneuvers] i={i} ts={idx_timestamp} "
+                            f"SCARTATA: Δcog={delta_cog:.1f}° in "
+                            f"[{_COG_GATE_SOFT},{_COG_GATE_HARD}] senza "
+                            f"crossing signal (cross_min={cross_min:.1f} "
+                            f"cross_max={cross_max:.1f})",
+                            flush=True,
+                        )
+                    continue
 
-            # Voti 5-6: firma fisica del crossing (peso doppio, più diretta).
-            # Soglia asimmetrica: la banda a 150-180° è più rumorosa della banda
-            # a 0-30° per tre motivi — wrap-around di angular_diff vicino a ±180°,
-            # COG-glitch quando la barca rallenta (diff GPS instabile), e
-            # interpolazione TWD lineare attraverso cambio ora Stormglass.
-            # Quindi:
-            # - Virata: ≥1 sample a |TWA|<30° con ≤1 sample a |TWA|>150° (il
-            #   singolo outlier alto è tollerato come rumore di wrap/glitch).
-            # - Strambata: ≥3 sample a |TWA|>150° con ≤1 a |TWA|<30° (serve un
-            #   passaggio persistente, non un glitch isolato).
+            # Classificazione crossing-first: la fisica dice
+            # cross_max>155° ⇔ passaggio a poppa ⇔ Strambata;
+            # cross_min<25°  ⇔ passaggio a prua  ⇔ Virata.
+            # Segnale diretto, non contaminato dal lag del filtro. Il voto
+            # precedente su TWA-mediana + andatura pre/post + count era
+            # ingannato da gybes veloci (pochi sample in banda alta) e da
+            # andature a cavallo del traverso: entrambi casi reali dal log
+            # test dell'utente. Il voto TWA-mediana resta solo come fallback
+            # quando il crossing non ha letture utili (finestra monca).
+            m_type = None
+            pre_twa = None
+            post_twa = None
+
             if len(cross_window) >= 5:
-                if count_near_zero >= 1 and count_near_pi <= 1:
-                    votes.extend(['Virata', 'Virata'])
-                elif count_near_pi >= 3 and count_near_zero <= 1:
-                    votes.extend(['Strambata', 'Strambata'])
+                near_zero = cross_min < _CROSS_VIRATA_DEG
+                near_pi = cross_max > _CROSS_STRAMBATA_DEG
+                if near_zero and not near_pi:
+                    m_type = 'Virata'
+                elif near_pi and not near_zero:
+                    m_type = 'Strambata'
+                elif near_zero and near_pi:
+                    # Entrambe le bande toccate: tie-breaker in tre livelli.
+                    # 1) Persistenza: vince la banda con piu' sample (n_low su
+                    #    soglia 30°, n_high su soglia 150°). Un singolo
+                    #    estremo vicino a 0° o 180° puo' essere un glitch
+                    #    (rumore TWD, diff GPS su barca ferma): ignorarlo e
+                    #    guardare quanti secondi la barca ha passato in
+                    #    ciascuna banda e' piu' affidabile.
+                    # 2) Distanza: solo a pareggio di persistenza, vince
+                    #    l'estremo piu' vicino alla sua banda di riferimento.
+                    if count_near_zero > count_near_pi:
+                        m_type = 'Virata'
+                    elif count_near_pi > count_near_zero:
+                        m_type = 'Strambata'
+                    else:
+                        m_type = 'Virata' if cross_min <= (180.0 - cross_max) else 'Strambata'
 
-            virate_n = votes.count('Virata')
-            strambata_n = votes.count('Strambata')
+            if m_type is None:
+                # Fallback: mediana |TWA| pre/post (il piu' robusto dei voti
+                # originali). Usa le stesse finestre stabili del detector
+                # precedente, separate di LAG_S secondi dall'evento per stare
+                # fuori dal cono di transizione del filtro Schmitt.
+                pre_lo = max(0, i - _CLASS_WINDOW_LAG_S - _CLASS_WINDOW_LEN_S)
+                pre_hi = max(0, i - _CLASS_WINDOW_LAG_S)
+                post_lo = min(len(df), i + _CLASS_WINDOW_LAG_S)
+                post_hi = min(len(df), i + _CLASS_WINDOW_LAG_S + _CLASS_WINDOW_LEN_S)
+                pre_twa = twa_abs_series.iloc[pre_lo:pre_hi]
+                post_twa = twa_abs_series.iloc[post_lo:post_hi]
 
-            if virate_n > strambata_n:
-                m_type = 'Virata'
-            elif strambata_n > virate_n:
-                m_type = 'Strambata'
-            else:
-                # Pareggio o nessun voto: fallback al sample immediato
-                m_type = 'Virata' if abs(float(df['twa_signed'].iloc[i-1])) < 90 else 'Strambata'
+                pre_vote = float(pre_twa.median()) if len(pre_twa) >= 4 else None
+                post_vote = float(post_twa.median()) if len(post_twa) >= 4 else None
+
+                if pre_vote is not None and post_vote is not None:
+                    combined = (pre_vote + post_vote) / 2.0
+                    m_type = 'Virata' if combined < 90 else 'Strambata'
+                elif pre_vote is not None:
+                    m_type = 'Virata' if pre_vote < 90 else 'Strambata'
+                elif post_vote is not None:
+                    m_type = 'Virata' if post_vote < 90 else 'Strambata'
+                else:
+                    # Ultima risorsa: sample singolo pre-evento
+                    m_type = 'Virata' if abs(float(df['twa_signed'].iloc[i-1])) < 90 else 'Strambata'
 
             if _DEBUG_CLASS:
-                pre_med = float(pre_twa.median()) if len(pre_twa) else float('nan')
-                post_med = float(post_twa.median()) if len(post_twa) else float('nan')
-                pre_b = int((pre_and == 'Bolina').sum())
-                pre_p = int((pre_and == 'Lasco/Poppa').sum())
-                post_b = int((post_and == 'Bolina').sum())
-                post_p = int((post_and == 'Lasco/Poppa').sum())
+                pre_med = float(pre_twa.median()) if pre_twa is not None and len(pre_twa) else float('nan')
+                post_med = float(post_twa.median()) if post_twa is not None and len(post_twa) else float('nan')
                 print(
                     f"[maneuvers] i={i} ts={idx_timestamp} "
-                    f"twa_pre={pre_med:.1f} twa_post={post_med:.1f} "
                     f"cross_min={cross_min:.1f} cross_max={cross_max:.1f} "
                     f"n_low={count_near_zero} n_high={count_near_pi} "
-                    f"and_pre=B{pre_b}/P{pre_p}/tot{len(pre_and)} "
-                    f"and_post=B{post_b}/P{post_p}/tot{len(post_and)} "
-                    f"votes={votes} -> {m_type}",
+                    f"twa_pre={pre_med:.1f} twa_post={post_med:.1f} -> {m_type}",
                     flush=True,
                 )
             

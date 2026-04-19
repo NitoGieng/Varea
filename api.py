@@ -130,7 +130,19 @@ async def analyze_fit_file(file: UploadFile = File(...)):
                 response = requests.get(url, params=params, headers=headers)
                 if response.status_code == 200:
                     data = response.json()
-                    api_twd_list = [hour['windDirection']['sg'] for hour in data['hours']]
+                    # Capturo sia i TWD che i timestamp reali dei bin orari.
+                    # Stormglass allinea le ore sui bordi :00 (es. 10:00, 11:00),
+                    # NON uniformemente su [start_ts, end_ts]. Usare linspace
+                    # come proxy sposta le curve TWD fino a 30 min dai valori
+                    # reali, generando TWA sbagliato a blocchi e manovre
+                    # fantasma. Salvo il formato esteso in cache.
+                    api_twd_list = [
+                        {
+                            'time': hour['time'],
+                            'twd': hour['windDirection']['sg'],
+                        }
+                        for hour in data['hours']
+                    ]
                     save_cached_weather(start_ts, api_twd_list)
                 else:
                     print(f"❌ Errore API Stormglass ({response.status_code})")
@@ -148,30 +160,41 @@ async def analyze_fit_file(file: UploadFile = File(...)):
         # --- FASE 3: CALCOLO VENTO DINAMICO ---
         print("3/4 Generazione Curva Vento Dinamica...")
         if api_twd_list and len(api_twd_list) > 0:
-            api_arr = np.asarray(api_twd_list, dtype=float)
-            if len(api_arr) == 1:
-                # Singola ora Stormglass: TWD costante su tutta la sessione.
-                df['twd_dynamic'] = float(api_arr[0])
+            # Backward-compat cache: vecchie entry sono liste piatte di TWD,
+            # nuove sono liste di dict {'time', 'twd'}. Rilevo il formato e
+            # ricostruisco api_times coerenti.
+            first_elem = api_twd_list[0]
+            if isinstance(first_elem, dict):
+                # Formato nuovo: tempi reali dai bordi orari Stormglass
+                api_twd_values = np.asarray([e['twd'] for e in api_twd_list], dtype=float)
+                api_time_strs = [e['time'] for e in api_twd_list]
+                api_times = np.array(
+                    [pd.Timestamp(t).timestamp() for t in api_time_strs],
+                    dtype=float,
+                )
             else:
-                # Interpolazione tempo-indicizzata con unwrap circolare. Il
-                # vecchio np.linspace(first, last, N) ignorava tutti i valori
-                # orari intermedi e — peggio — interpolava linearmente sui
-                # gradi grezzi: se il TWD passa da 350° a 10° (rotazione
-                # oraria di +20°) produceva -340° su tutta la sessione,
-                # falsando ogni TWA a valle e generando manovre fantasma
-                # quando il COG costante veniva confrontato col TWD ruotato.
-                # unwrap+interp+wrap e' l'unica interpolazione stabile sul
-                # cerchio (stesso pattern usato sotto nel ramo GPS-only).
-                # Le N ore di Stormglass sono uniformi su [start_ts, end_ts]
-                # per approssimazione: sufficiente per interpolare a 1Hz
-                # sulle decine/centinaia di minuti tipiche della sessione.
-                api_times = np.linspace(start_ts, end_ts, len(api_arr))
-                api_rad_unwrapped = np.unwrap(np.radians(api_arr))
-                # Converti l'indice a epoch-seconds int64. Passare per
-                # datetime64[s] evita la dipendenza dall'unita' interna di
-                # DatetimeIndex: in pandas 3.x astype('int64') diretto
-                # produrrebbe microsecondi invece di nanosecondi, rompendo
-                # l'interpolazione silenziosamente.
+                # Formato legacy: solo TWD, ricostruisco i tempi come linspace
+                # (approssimazione con errore fino a 30 min — accettabile solo
+                # per cache esistenti che l'utente non vuole rigenerare).
+                api_twd_values = np.asarray(api_twd_list, dtype=float)
+                api_times = np.linspace(start_ts, end_ts, len(api_twd_values))
+
+            if len(api_twd_values) == 1:
+                # Singola ora: TWD costante su tutta la sessione.
+                df['twd_dynamic'] = float(api_twd_values[0])
+            else:
+                # Interpolazione tempo-indicizzata con unwrap circolare.
+                # L'unwrap e' l'unica interpolazione stabile sul cerchio: se
+                # TWD passa da 350° a 10° (rotazione oraria +20°) lineare sui
+                # gradi grezzi produrrebbe -340° e farebbe ruotare il TWD di
+                # 340° nel senso sbagliato, falsando ogni TWA e generando
+                # manovre fantasma quando il COG costante viene confrontato
+                # con il TWD ruotato al contrario.
+                api_rad_unwrapped = np.unwrap(np.radians(api_twd_values))
+                # df_times in epoch-seconds int64. Passare per datetime64[s]
+                # evita la dipendenza dall'unita' interna di DatetimeIndex:
+                # in pandas 3.x astype('int64') diretto produrrebbe
+                # microsecondi invece di nanosecondi, rompendo silenziosamente.
                 df_times = df.index.values.astype('datetime64[s]').astype('int64')
                 twd_interp_rad = np.interp(df_times, api_times, api_rad_unwrapped)
                 df['twd_dynamic'] = np.degrees(twd_interp_rad) % 360
@@ -246,7 +269,14 @@ async def analyze_fit_file(file: UploadFile = File(...)):
             real_start_time = "2024-01-01T12:00:00Z"
             duration_sec = len(df)
             
-        api_twd_display = api_twd_list[0] if api_twd_list else None
+        # Report mostra il primo TWD orario. Gestisco sia il formato nuovo
+        # ({'time','twd'}) sia il legacy (lista piatta) per non rompere
+        # la UI quando si lavora con cache vecchie.
+        if api_twd_list:
+            first = api_twd_list[0]
+            api_twd_display = first['twd'] if isinstance(first, dict) else first
+        else:
+            api_twd_display = None
 
         report = {
             "session_info": {
