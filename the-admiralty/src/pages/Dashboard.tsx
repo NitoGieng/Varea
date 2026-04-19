@@ -390,9 +390,15 @@ export default function Dashboard() {
     const ref = new Date(referenceMs);
     return new Date(ref.getFullYear(), ref.getMonth(), ref.getDate(), hh, mm, ss).getTime();
   };
+  // L'ancora e' sempre la data di inizio sessione: <input type="time"> emette
+  // un onChange per ogni carattere digitato, producendo valori intermedi come
+  // "01:53:23" mentre l'utente sostituisce l'HH di "15:30:04". Se ancorassimo
+  // al pendingRange.{start,end}Ms, un intermedio piu' piccolo di start
+  // wrappava al giorno successivo e i tasti successivi restavano bloccati
+  // nel giorno+1, estendendo la finestra a ~24h.
   const setStartAbsolute = (hms: string) => {
-    if (!pendingRange) return;
-    const newStart = parseClockLocal(hms, pendingRange.startMs);
+    if (!pendingRange || primaryStartMs == null) return;
+    const newStart = parseClockLocal(hms, primaryStartMs);
     if (newStart == null) return;
     setPendingRange(prev => prev ? {
       startMs: newStart,
@@ -400,10 +406,9 @@ export default function Dashboard() {
     } : prev);
   };
   const setEndAbsolute = (hms: string) => {
-    if (!pendingRange) return;
-    let newEnd = parseClockLocal(hms, pendingRange.endMs);
+    if (!pendingRange || primaryStartMs == null) return;
+    const newEnd = parseClockLocal(hms, primaryStartMs);
     if (newEnd == null) return;
-    if (newEnd <= pendingRange.startMs) newEnd += 24 * 60 * 60 * 1000;
     setPendingRange(prev => prev ? {
       startMs: Math.min(prev.startMs, newEnd - 1000),
       endMs: newEnd,
