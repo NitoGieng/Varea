@@ -20,6 +20,14 @@ interface Props {
 const PRE_START_SEC = 120;
 const POST_START_SEC = 60;
 
+// Palette coerente col design system (Recharts non legge CSS vars).
+const COLOR_LINE = '#c9a169';
+const COLOR_GRID = 'rgba(201, 161, 105, 0.08)';
+const COLOR_AXIS_DIM = '#5e6b80';
+const COLOR_TICK = '#a8b3c4';
+const COLOR_TOOLTIP_BG = '#0a1628';
+const COLOR_TOOLTIP_BORDER = 'rgba(201, 161, 105, 0.3)';
+
 // Tipo per i payload di Recharts (no tipi ufficiali stabili).
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyProps = any;
@@ -33,13 +41,21 @@ function CustomTooltip(props: AnyProps) {
   const rel = label as number;
   const visibleSessions: StartSession[] = sessions ?? [];
   return (
-    <div className="bg-navy-900 text-white p-3 rounded shadow-lg text-xs font-mono min-w-[200px]">
-      <p className="font-bold mb-2 text-gold">
+    <div
+      className="px-3 py-2 rounded-md font-mono tabular text-caption min-w-[200px]"
+      style={{
+        backgroundColor: COLOR_TOOLTIP_BG,
+        border: `1px solid ${COLOR_TOOLTIP_BORDER}`,
+        color: '#f5f1e6',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.45)',
+      }}
+    >
+      <p className="text-eyebrow uppercase tracking-eyebrow mb-2" style={{ color: COLOR_LINE }}>
         {rel === 0
-          ? "IL MOMENTO DELLO SPARO"
+          ? 'IL MOMENTO DELLO SPARO'
           : rel < 0
-            ? `${Math.abs(rel)} SECONDI ALLO START`
-            : `${rel} SECONDI DI GARA`}
+            ? `${Math.abs(rel)}s allo start`
+            : `+${rel}s di gara`}
       </p>
       {visibleSessions.map((s) => {
         const sog = payload.find((p: AnyProps) => p.dataKey === `sog_${s.id}`)?.value;
@@ -47,11 +63,11 @@ function CustomTooltip(props: AnyProps) {
         const cog = row?.[`cog_${s.id}`];
         if (sog == null) return null;
         return (
-          <div key={s.id} className="flex items-center gap-2 mb-1">
+          <div key={s.id} className="flex items-center gap-2 mb-1 last:mb-0">
             <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: s.color }} />
             <span className="font-bold flex-1 truncate">{s.label}</span>
             <span>{sog.toFixed(1)} kts</span>
-            {cog != null && <span className="text-gray-400 text-[10px]">{Math.round(cog)}°</span>}
+            {cog != null && <span className="text-[10px]" style={{ color: COLOR_AXIS_DIM }}>{Math.round(cog)}°</span>}
           </div>
         );
       })}
@@ -67,7 +83,7 @@ export default function StartAnalysis({ sessions }: Props) {
   // type="time" usa la stessa convenzione UTC del filtro globale (Step 3),
   // cosi' i due tempi restano comparabili tra le viste.
   const [startTimeInput, setStartTimeInput] = useState<string>(() => {
-    if (!primary) return "12:00:00";
+    if (!primary) return '12:00:00';
     try {
       const norm = primary.sessionStart.replace(' ', 'T');
       const d = new Date(norm.endsWith('Z') ? norm : norm + 'Z');
@@ -76,7 +92,7 @@ export default function StartAnalysis({ sessions }: Props) {
       const ss = String(d.getUTCSeconds()).padStart(2, '0');
       return `${hh}:${mm}:${ss}`;
     } catch {
-      return "12:00:00";
+      return '12:00:00';
     }
   });
 
@@ -156,82 +172,95 @@ export default function StartAnalysis({ sessions }: Props) {
   }, [perSessionData]);
 
   const formatXAxis = (tickItem: number) => {
-    if (tickItem === 0) return "START";
+    if (tickItem === 0) return 'START';
     return tickItem > 0 ? `+${tickItem}s` : `${tickItem}s`;
   };
 
   if (!primary) {
     return (
-      <div className="p-12 text-center text-gray-400 italic">
-        Nessuna sessione visibile.
+      <div className="px-6 lg:px-12 py-8 max-w-[1500px] mx-auto w-full">
+        <header className="pb-5">
+          <p className="eyebrow mb-2">Analisi partenza</p>
+          <h1 className="font-serif italic text-h2 text-ink leading-none">Sparo</h1>
+        </header>
+        <div className="rule-brass mb-8" />
+        <div className="text-ink-muted text-caption italic">
+          Nessuna sessione visibile.
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="p-8 lg:p-12 max-w-[1600px] mx-auto w-full">
-      <header className="mb-8">
-        <h2 className="text-3xl font-serif font-black text-navy-900 leading-none">Analisi Partenza (Start)</h2>
-        <p className="text-xs font-bold uppercase tracking-[0.2em] text-gray-500 mt-2">
-          Finestra tattica: 2 Minuti pre-start / 1 Minuto post-start
+    <div className="px-6 lg:px-12 py-8 max-w-[1500px] mx-auto w-full">
+      <header className="pb-5">
+        <p className="eyebrow mb-2">Analisi partenza</p>
+        <h1 className="font-serif italic text-h2 text-ink leading-none">Sparo</h1>
+        <p className="text-caption text-ink-muted mt-3 max-w-2xl">
+          Finestra tattica di 2 minuti pre-start e 1 minuto post-start attorno al
+          momento dello sparo.
           {isMulti && (
-            <span className="text-gold ml-2 normal-case tracking-normal font-sans">
-              — ghosting di {sessions.length} atleti su T=0 condiviso
+            <span className="text-gold ml-1">
+              Ghosting di {sessions.length} atleti su T=0 condiviso.
             </span>
           )}
         </p>
       </header>
 
-      <div className="bg-white p-6 shadow-sm border border-gray-200 rounded mb-8 flex flex-col md:flex-row items-end gap-6 justify-between flex-wrap">
+      <div className="rule-brass mb-6" />
+
+      <div className="bg-surface-1 border border-border rounded-lg shadow-card p-5 mb-6 flex flex-col md:flex-row items-end gap-6 justify-between flex-wrap">
         <div>
-          <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">Ora esatta del T=0 (Lo Sparo)</label>
-          <div className="flex items-center bg-gray-50 border border-gray-200 rounded focus-within:border-gold overflow-hidden w-fit">
+          <label className="block text-eyebrow uppercase tracking-eyebrow text-ink-muted mb-2">
+            Ora esatta del T=0 (lo sparo)
+          </label>
+          <div className="flex items-center bg-bg border border-border rounded-md focus-within:border-gold overflow-hidden w-fit transition-colors">
             <input
               type="time"
               step="1"
               value={startTimeInput}
               onChange={(e) => setStartTimeInput(e.target.value)}
-              className="py-2 px-4 bg-transparent text-lg font-mono font-bold text-navy-900 outline-none"
+              className="py-2 px-4 bg-transparent text-body-lg font-mono tabular font-bold text-ink outline-none"
             />
           </div>
-          <p className="text-xs text-gray-400 mt-2">
+          <p className="text-caption text-ink-muted mt-2">
             {isMulti
-              ? "Tutti gli atleti vengono allineati a questo istante UTC."
-              : "Inserisci l'orario reale in cui il comitato ha dato il via."}
+              ? 'Tutti gli atleti vengono allineati a questo istante UTC.'
+              : 'Inserisci l\'orario reale in cui il comitato ha dato il via.'}
           </p>
         </div>
       </div>
 
       {perSessionStats.some(s => s.hasData) && (
-        <div className="mb-8 grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
+        <div className="mb-6 grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
           {perSessionStats.map(({ session, speedAtZero, maxPreStart, avgPostStart, hasData }) => (
             <div
               key={session.id}
-              className={`bg-white p-4 shadow-sm border border-gray-200 rounded ${hasData ? '' : 'opacity-50'}`}
+              className={`bg-surface-1 border border-border rounded-lg shadow-card p-4 ${hasData ? '' : 'opacity-50'}`}
             >
-              <div className="flex items-center gap-2 mb-3 pb-2 border-b border-gray-100">
+              <div className="flex items-center gap-2 mb-3 pb-2 border-b border-border">
                 <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: session.color }} />
-                <span className="text-sm font-bold text-navy-900 truncate">{session.label}</span>
-                {!hasData && <span className="text-[10px] text-gray-400 ml-auto">— fuori finestra</span>}
+                <span className="text-caption font-bold text-ink truncate">{session.label}</span>
+                {!hasData && <span className="text-[10px] text-ink-muted ml-auto italic">— fuori finestra</span>}
               </div>
               {hasData && (
                 <div className="grid grid-cols-3 gap-2">
                   <div className="text-center">
-                    <div className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mb-1">Accel (-15s)</div>
-                    <div className="text-base font-serif font-bold text-navy-900">
-                      {maxPreStart.toFixed(1)}<span className="text-[10px] font-sans text-gray-500"> kts</span>
+                    <div className="text-eyebrow uppercase tracking-eyebrow text-ink-muted mb-1">Accel -15s</div>
+                    <div className="text-body-lg font-mono tabular font-bold text-ink-2">
+                      {maxPreStart.toFixed(1)}<span className="text-[10px] font-sans text-ink-muted ml-0.5">kts</span>
                     </div>
                   </div>
                   <div className="text-center bg-gold/10 rounded px-1 py-0.5">
-                    <div className="text-[9px] font-bold text-gold uppercase tracking-widest mb-1">Crossing</div>
-                    <div className="text-lg font-serif font-bold text-navy-900">
-                      {speedAtZero.toFixed(1)}<span className="text-[10px] font-sans text-gray-500"> kts</span>
+                    <div className="text-eyebrow uppercase tracking-eyebrow text-gold mb-1">Crossing</div>
+                    <div className="text-body-lg font-mono tabular font-bold text-ink">
+                      {speedAtZero.toFixed(1)}<span className="text-[10px] font-sans text-ink-muted ml-0.5">kts</span>
                     </div>
                   </div>
                   <div className="text-center">
-                    <div className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mb-1">Cruise (+15s)</div>
-                    <div className="text-base font-serif font-bold text-navy-900">
-                      {avgPostStart.toFixed(1)}<span className="text-[10px] font-sans text-gray-500"> kts</span>
+                    <div className="text-eyebrow uppercase tracking-eyebrow text-ink-muted mb-1">Cruise +15s</div>
+                    <div className="text-body-lg font-mono tabular font-bold text-ink-2">
+                      {avgPostStart.toFixed(1)}<span className="text-[10px] font-sans text-ink-muted ml-0.5">kts</span>
                     </div>
                   </div>
                 </div>
@@ -241,35 +270,42 @@ export default function StartAnalysis({ sessions }: Props) {
         </div>
       )}
 
-      <div className="bg-white shadow-sm border border-gray-200 rounded p-6 h-[500px]">
+      <div className="bg-surface-1 border border-border rounded-lg shadow-card p-6 h-[500px]">
         {mergedChartData.length > 0 ? (
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={mergedChartData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+            <LineChart data={mergedChartData} margin={{ top: 24, right: 30, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="2 4" vertical={false} stroke={COLOR_GRID} />
               <XAxis
                 dataKey="relativeTime"
                 type="number"
                 domain={[-PRE_START_SEC, POST_START_SEC]}
                 tickFormatter={formatXAxis}
                 minTickGap={30}
-                tick={{ fill: '#9ca3af', fontSize: 12, fontWeight: 'bold' }}
+                tick={{ fill: COLOR_TICK, fontSize: 10, fontFamily: 'JetBrains Mono, ui-monospace, monospace' }}
                 axisLine={false}
                 tickLine={false}
               />
               <YAxis
                 domain={['auto', 'auto']}
-                tick={{ fill: '#9ca3af', fontSize: 12 }}
+                tick={{ fill: COLOR_TICK, fontSize: 10, fontFamily: 'JetBrains Mono, ui-monospace, monospace' }}
                 axisLine={false}
                 tickLine={false}
-                tickFormatter={(val) => `${val} kts`}
+                tickFormatter={(val) => `${val}`}
+                width={40}
               />
-              <Tooltip content={<CustomTooltip sessions={sessions} />} />
+              <Tooltip content={<CustomTooltip sessions={sessions} />} cursor={{ stroke: COLOR_LINE, strokeOpacity: 0.3, strokeWidth: 1 }} />
               <ReferenceLine
                 x={0}
-                stroke="#d4af37"
-                strokeWidth={3}
-                strokeDasharray="4 4"
-                label={{ position: 'top', value: 'START', fill: '#d4af37', fontSize: 14, fontWeight: 'bold' }}
+                stroke={COLOR_LINE}
+                strokeWidth={1}
+                strokeDasharray="3 4"
+                label={{
+                  position: 'top',
+                  value: 'START',
+                  fill: COLOR_LINE,
+                  fontSize: 10,
+                  fontFamily: 'JetBrains Mono, monospace',
+                }}
               />
               {sessions.map((s) => (
                 <Line
@@ -277,27 +313,26 @@ export default function StartAnalysis({ sessions }: Props) {
                   type="monotone"
                   dataKey={`sog_${s.id}`}
                   stroke={s.color}
-                  strokeWidth={isMulti ? 2 : 3}
+                  strokeWidth={isMulti ? 1.5 : 2}
                   dot={false}
                   isAnimationActive={false}
                   connectNulls
-                  activeDot={{ r: 5, fill: s.color, stroke: "#fff", strokeWidth: 2 }}
+                  activeDot={{ r: 4, fill: s.color, stroke: COLOR_TOOLTIP_BG, strokeWidth: 2 }}
                   name={s.label}
                 />
               ))}
             </LineChart>
           </ResponsiveContainer>
         ) : (
-          <div className="w-full h-full flex flex-col items-center justify-center text-gray-400">
-            <svg className="w-12 h-12 mb-4 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          <div className="w-full h-full flex flex-col items-center justify-center text-ink-muted">
+            <svg className="w-10 h-10 mb-3 opacity-40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            <p>Nessun dato GPS in questo orario.</p>
-            <p className="text-xs mt-1">Usa la barra qui sopra per cercare il momento esatto della partenza.</p>
+            <p className="font-serif italic text-body-lg">Nessun dato GPS in questo orario.</p>
+            <p className="text-caption mt-1">Usa la barra qui sopra per cercare il momento esatto della partenza.</p>
           </div>
         )}
       </div>
-
     </div>
   );
 }

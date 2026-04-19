@@ -68,7 +68,7 @@ export default function TelemetryMap({
 
   if (visibleLayers.length === 0) {
     return (
-      <div className="absolute inset-0 flex items-center justify-center text-gray-400 text-sm italic">
+      <div className="absolute inset-0 flex items-center justify-center text-ink-muted text-caption italic">
         Nessun dato GPS da mostrare
       </div>
     );
@@ -100,7 +100,7 @@ export default function TelemetryMap({
           data={[
             {
               type: 'scattermap', lat: lats, lon: lons, mode: 'lines',
-              line: { width: 1.5, color: 'rgba(6, 19, 37, 0.35)' },
+              line: { width: 1.25, color: 'rgba(201, 161, 105, 0.25)' },
               hoverinfo: 'skip', showlegend: false,
             },
             {
@@ -108,24 +108,25 @@ export default function TelemetryMap({
               marker: {
                 size: 4, color: speeds, colorscale: 'Plasma', showscale: true,
                 colorbar: {
-                  title: 'SOG (kts)', thickness: 15, len: 0.8, outlinewidth: 0,
-                  tickfont: { family: 'Inter, sans-serif', size: 10 },
+                  title: 'SOG (kts)', thickness: 12, len: 0.7, outlinewidth: 0,
+                  tickfont: { family: 'JetBrains Mono, ui-monospace, monospace', size: 10, color: '#a8b3c4' },
+                  titlefont: { family: 'Inter, sans-serif', size: 10, color: '#a8b3c4' },
                 },
               },
               text: hoverTexts, hoverinfo: 'text', showlegend: false,
             },
             {
               type: 'scattermap', lat: [lats[0]], lon: [lons[0]], mode: 'markers+text',
-              marker: { size: 14, color: '#10b981' },
+              marker: { size: 12, color: '#7fa885' },
               text: ['START'], textposition: 'top right',
-              textfont: { family: 'Inter, sans-serif', size: 12, color: '#10b981' },
+              textfont: { family: 'JetBrains Mono, monospace', size: 11, color: '#7fa885' },
               hovertext: ['Inizio tracciato'], hoverinfo: 'text', showlegend: false,
             },
             {
               type: 'scattermap', lat: [lats[lats.length - 1]], lon: [lons[lons.length - 1]], mode: 'markers+text',
-              marker: { size: 14, color: '#ef4444' },
+              marker: { size: 12, color: '#c97462' },
               text: ['FINE'], textposition: 'top right',
-              textfont: { family: 'Inter, sans-serif', size: 12, color: '#ef4444' },
+              textfont: { family: 'JetBrains Mono, monospace', size: 11, color: '#c97462' },
               hovertext: ['Fine tracciato'], hoverinfo: 'text', showlegend: false,
             },
           ]}
@@ -133,7 +134,7 @@ export default function TelemetryMap({
             dragmode: 'pan',
             margin: { l: 0, r: 0, t: 0, b: 0 },
             map: {
-              style: 'carto-positron',
+              style: 'carto-darkmatter',
               center: { lat: avgLat, lon: avgLon },
               zoom: 13, layers: [], uirevision: 'true',
             },
@@ -163,15 +164,15 @@ export default function TelemetryMap({
     );
     traces.push({
       type: 'scattermap', lat: lats, lon: lons, mode: 'lines',
-      line: { width: 2.5, color: l.color },
+      line: { width: 2, color: l.color },
       text: hoverTexts, hoverinfo: 'text',
       name: l.label, showlegend: false,
     });
     traces.push({
       type: 'scattermap', lat: [lats[0]], lon: [lons[0]], mode: 'markers+text',
-      marker: { size: 11, color: l.color },
+      marker: { size: 10, color: l.color },
       text: [l.label], textposition: 'top right',
-      textfont: { family: 'Inter, sans-serif', size: 11, color: l.color },
+      textfont: { family: 'JetBrains Mono, monospace', size: 11, color: l.color },
       hoverinfo: 'skip', showlegend: false,
     });
   }
@@ -184,7 +185,7 @@ export default function TelemetryMap({
           dragmode: 'pan',
           margin: { l: 0, r: 0, t: 0, b: 0 },
           map: {
-            style: 'carto-positron',
+            style: 'carto-darkmatter',
             center: { lat: avgLat, lon: avgLon },
             zoom: 13, layers: [], uirevision: 'true',
           },
