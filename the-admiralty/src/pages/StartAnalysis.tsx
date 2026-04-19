@@ -22,7 +22,7 @@ const POST_START_SEC = 60;
 
 // Palette coerente col design system (Recharts non legge CSS vars).
 const COLOR_LINE = '#c9a169';
-const COLOR_GRID = 'rgba(201, 161, 105, 0.08)';
+const COLOR_GRID = 'rgba(201, 161, 105, 0.15)';
 const COLOR_AXIS_DIM = '#5e6b80';
 const COLOR_TICK = '#a8b3c4';
 const COLOR_TOOLTIP_BG = '#0a1628';

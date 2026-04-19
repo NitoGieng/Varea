@@ -1,13 +1,13 @@
 // Palette fissa ad alto contrasto per distinguere le sessioni nei grafici
-// multi-atleta. L'ordine conta: il primo slot (navy) riproduce il colore
-// storico della UI single-session, quindi caricare un solo file lascia
-// l'aspetto invariato.
+// multi-atleta. Tutti i colori scelti per essere leggibili sia su paper
+// (light) che su cockpit notturno (dark). Il primo slot e' oro — firma
+// del brand Varea nella veste premium.
 
 export const SESSION_PALETTE: string[] = [
-  '#061325', // navy — storico Varea
-  '#ef4444', // red
-  '#10b981', // emerald
-  '#f59e0b', // amber
+  '#c9a169', // gold — firma Varea
+  '#7fa885', // sage
+  '#c97462', // terra
+  '#e8cea0', // brass chiaro
   '#8b5cf6', // violet
   '#06b6d4', // cyan
   '#f43f5e', // rose

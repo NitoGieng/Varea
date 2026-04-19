@@ -511,7 +511,7 @@ export default function Dashboard() {
                     Tracciato GPS{isFiltered ? ' · segmento filtrato' : ''}
                   </h3>
                 </div>
-                <div className="h-[600px] w-full bg-bg">
+                <div className="relative h-[600px] w-full bg-bg">
                   {MapMemoized}
                 </div>
               </section>

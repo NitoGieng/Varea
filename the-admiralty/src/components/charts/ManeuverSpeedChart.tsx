@@ -22,7 +22,7 @@ const V_OUT_OFFSET_S = 12;
 // Palette coerente con i token semantici del design system (hex hardcoded
 // perche' Recharts non legge le CSS vars). Default = tema dark.
 const COLOR_LINE = '#c9a169';   // gold
-const COLOR_GRID = 'rgba(201, 161, 105, 0.08)'; // gold/8 — gridlines quasi invisibili
+const COLOR_GRID = 'rgba(201, 161, 105, 0.15)'; // gold/15 — subtle ma visibili in dark
 const COLOR_AXIS_DIM = '#5e6b80'; // ink-muted dark
 const COLOR_TICK = '#a8b3c4';
 const COLOR_MARKER = '#c9a169'; // active dot

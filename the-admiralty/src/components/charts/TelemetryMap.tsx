@@ -100,17 +100,26 @@ export default function TelemetryMap({
           data={[
             {
               type: 'scattermap', lat: lats, lon: lons, mode: 'lines',
-              line: { width: 1.25, color: 'rgba(201, 161, 105, 0.25)' },
+              line: { width: 1.5, color: 'rgba(201, 161, 105, 0.45)' },
               hoverinfo: 'skip', showlegend: false,
             },
             {
               type: 'scattermap', lat: lats, lon: lons, mode: 'markers',
               marker: {
-                size: 4, color: speeds, colorscale: 'Plasma', showscale: true,
+                size: 5, color: speeds, showscale: true,
+                // Colorscale brand-aligned: sage (SOG bassa) → brass → avorio
+                // (SOG alta). Nessun estremo scuro: tutti i valori restano
+                // leggibili sia su carto-darkmatter che su carto-positron.
+                colorscale: [
+                  [0, '#4a7a58'],
+                  [0.35, '#c9a169'],
+                  [0.7, '#e8cea0'],
+                  [1, '#f5f1e6'],
+                ],
                 colorbar: {
-                  title: 'SOG (kts)', thickness: 12, len: 0.7, outlinewidth: 0,
+                  title: { text: 'SOG (kts)', font: { family: 'Inter, sans-serif', size: 10, color: '#a8b3c4' } },
+                  thickness: 12, len: 0.7, outlinewidth: 0,
                   tickfont: { family: 'JetBrains Mono, ui-monospace, monospace', size: 10, color: '#a8b3c4' },
-                  titlefont: { family: 'Inter, sans-serif', size: 10, color: '#a8b3c4' },
                 },
               },
               text: hoverTexts, hoverinfo: 'text', showlegend: false,
