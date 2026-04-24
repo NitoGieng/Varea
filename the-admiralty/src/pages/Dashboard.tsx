@@ -345,33 +345,40 @@ export default function Dashboard() {
     const ss = String(d.getSeconds()).padStart(2, '0');
     return `${hh}:${mm}:${ss}`;
   };
-  const toMinSec = (ms: number, baseMs: number) => {
+  const toHMS = (ms: number, baseMs: number) => {
     const totalSec = Math.max(0, Math.round((ms - baseMs) / 1000));
-    return { min: Math.floor(totalSec / 60), sec: totalSec % 60 };
+    return {
+      h: Math.floor(totalSec / 3600),
+      m: Math.floor((totalSec % 3600) / 60),
+      s: totalSec % 60,
+      total: totalSec,
+    };
   };
   const displayStart = pendingRange && primaryStartMs != null
-    ? toMinSec(pendingRange.startMs, primaryStartMs)
-    : { min: 0, sec: 0 };
+    ? toHMS(pendingRange.startMs, primaryStartMs)
+    : { h: 0, m: 0, s: 0, total: 0 };
   const displayEnd = pendingRange && primaryStartMs != null
-    ? toMinSec(pendingRange.endMs, primaryStartMs)
-    : { min: 0, sec: 0 };
+    ? toHMS(pendingRange.endMs, primaryStartMs)
+    : { h: 0, m: 0, s: 0, total: 0 };
   const absStartDisplay = pendingRange ? fmtClockLocal(pendingRange.startMs) : '';
   const absEndDisplay = pendingRange ? fmtClockLocal(pendingRange.endMs) : '';
-  const maxRelMinutes = globalBounds && primaryStartMs != null
-    ? Math.max(0, Math.ceil((globalBounds.endMs - primaryStartMs) / 60000))
+  const maxRelSec = globalBounds && primaryStartMs != null
+    ? Math.max(0, Math.ceil((globalBounds.endMs - primaryStartMs) / 1000))
     : 0;
+  // Sopra 1h la UI min:sec costringe a digitare "240:00": mostro HH:MM:SS.
+  const showHours = maxRelSec > 3600;
 
-  const setStartRelative = (min: number, sec: number) => {
+  const setStartRelativeSec = (totalSec: number) => {
     if (primaryStartMs == null) return;
-    const newStart = primaryStartMs + (min * 60 + sec) * 1000;
+    const newStart = primaryStartMs + totalSec * 1000;
     setPendingRange(prev => prev ? {
       startMs: newStart,
       endMs: Math.max(newStart + 1000, prev.endMs),
     } : prev);
   };
-  const setEndRelative = (min: number, sec: number) => {
+  const setEndRelativeSec = (totalSec: number) => {
     if (primaryStartMs == null) return;
-    const newEnd = primaryStartMs + (min * 60 + sec) * 1000;
+    const newEnd = primaryStartMs + totalSec * 1000;
     setPendingRange(prev => prev ? {
       startMs: Math.min(prev.startMs, newEnd - 1000),
       endMs: newEnd,
@@ -447,9 +454,10 @@ export default function Dashboard() {
             displayEnd={displayEnd}
             absStartDisplay={absStartDisplay}
             absEndDisplay={absEndDisplay}
-            maxRelMinutes={maxRelMinutes}
-            setStartRelative={setStartRelative}
-            setEndRelative={setEndRelative}
+            maxRelSec={maxRelSec}
+            showHours={showHours}
+            setStartRelativeSec={setStartRelativeSec}
+            setEndRelativeSec={setEndRelativeSec}
             setStartAbsolute={setStartAbsolute}
             setEndAbsolute={setEndAbsolute}
           />
@@ -665,16 +673,24 @@ function Topbar({ viewLabel, onDownload, onUpload, isUploading }: TopbarProps) {
   );
 }
 
+interface HMSValue {
+  h: number;
+  m: number;
+  s: number;
+  total: number;
+}
+
 interface FilterBarProps {
   useAbsoluteTime: boolean;
   setUseAbsoluteTime: (v: boolean) => void;
-  displayStart: { min: number; sec: number };
-  displayEnd: { min: number; sec: number };
+  displayStart: HMSValue;
+  displayEnd: HMSValue;
   absStartDisplay: string;
   absEndDisplay: string;
-  maxRelMinutes: number;
-  setStartRelative: (min: number, sec: number) => void;
-  setEndRelative: (min: number, sec: number) => void;
+  maxRelSec: number;
+  showHours: boolean;
+  setStartRelativeSec: (totalSec: number) => void;
+  setEndRelativeSec: (totalSec: number) => void;
   setStartAbsolute: (hms: string) => void;
   setEndAbsolute: (hms: string) => void;
 }
@@ -711,11 +727,10 @@ function FilterBar(p: FilterBarProps) {
             <FilterField label="Da">
               {!p.useAbsoluteTime ? (
                 <RelativeInput
-                  min={p.displayStart.min}
-                  sec={p.displayStart.sec}
-                  maxMin={p.displayEnd.min}
-                  onMinChange={(n) => p.setStartRelative(n, p.displayStart.sec)}
-                  onSecChange={(n) => p.setStartRelative(p.displayStart.min, n)}
+                  value={p.displayStart}
+                  showHours={p.showHours}
+                  maxSec={p.displayEnd.total}
+                  onChange={p.setStartRelativeSec}
                 />
               ) : (
                 <ClockInput value={p.absStartDisplay} onChange={p.setStartAbsolute} />
@@ -724,12 +739,11 @@ function FilterBar(p: FilterBarProps) {
             <FilterField label="A">
               {!p.useAbsoluteTime ? (
                 <RelativeInput
-                  min={p.displayEnd.min}
-                  sec={p.displayEnd.sec}
-                  minMin={p.displayStart.min}
-                  maxMin={p.maxRelMinutes}
-                  onMinChange={(n) => p.setEndRelative(n, p.displayEnd.sec)}
-                  onSecChange={(n) => p.setEndRelative(p.displayEnd.min, n)}
+                  value={p.displayEnd}
+                  showHours={p.showHours}
+                  minSec={p.displayStart.total}
+                  maxSec={p.maxRelSec}
+                  onChange={p.setEndRelativeSec}
                 />
               ) : (
                 <ClockInput value={p.absEndDisplay} onChange={p.setEndAbsolute} />
@@ -752,44 +766,75 @@ function FilterField({ label, children }: { label: string; children: ReactNode }
 }
 
 function RelativeInput({
-  min,
-  sec,
-  minMin = 0,
-  maxMin,
-  onMinChange,
-  onSecChange,
+  value,
+  showHours,
+  minSec = 0,
+  maxSec,
+  onChange,
 }: {
-  min: number;
-  sec: number;
-  minMin?: number;
-  maxMin: number;
-  onMinChange: (n: number) => void;
-  onSecChange: (n: number) => void;
+  value: HMSValue;
+  showHours: boolean;
+  minSec?: number;
+  maxSec: number;
+  onChange: (totalSec: number) => void;
 }) {
-  const handle = (raw: string, cb: (n: number) => void) => {
-    if (raw === '') return;
-    const n = Number(raw);
-    if (Number.isNaN(n)) return;
-    cb(n);
+  // onChange emette sempre *totale in secondi*: i tre campi restano
+  // indipendenti nella UI ma non possono produrre stati incoerenti perché
+  // ricomponiamo il totale ad ogni tasto e il parent clampa agli estremi.
+  const emit = (h: number, m: number, s: number) => {
+    const total = Math.max(minSec, Math.min(maxSec, h * 3600 + m * 60 + s));
+    onChange(total);
   };
+  const parse = (raw: string): number | null => {
+    if (raw === '') return null;
+    const n = Number(raw);
+    return Number.isNaN(n) ? null : n;
+  };
+  const maxHour = Math.floor(maxSec / 3600);
+
   return (
     <div className="flex items-center bg-bg border border-border rounded-md focus-within:border-gold overflow-hidden font-mono">
+      {showHours && (
+        <>
+          <input
+            type="number"
+            min={0}
+            max={maxHour}
+            value={value.h}
+            onChange={(e) => {
+              const n = parse(e.target.value);
+              if (n !== null) emit(n, value.m, value.s);
+            }}
+            className="w-10 py-1 px-1 bg-transparent text-body text-ink outline-none text-center tabular"
+            aria-label="Ore"
+          />
+          <span className="text-ink-muted">:</span>
+        </>
+      )}
       <input
         type="number"
-        min={minMin}
-        max={maxMin}
-        value={min}
-        onChange={(e) => handle(e.target.value, onMinChange)}
+        min={0}
+        max={showHours ? 59 : Math.floor(maxSec / 60)}
+        value={value.m}
+        onChange={(e) => {
+          const n = parse(e.target.value);
+          if (n !== null) emit(value.h, n, value.s);
+        }}
         className="w-12 py-1 px-1 bg-transparent text-body text-ink outline-none text-center tabular"
+        aria-label="Minuti"
       />
       <span className="text-ink-muted">:</span>
       <input
         type="number"
         min={0}
         max={59}
-        value={sec}
-        onChange={(e) => handle(e.target.value, onSecChange)}
+        value={value.s}
+        onChange={(e) => {
+          const n = parse(e.target.value);
+          if (n !== null) emit(value.h, value.m, n);
+        }}
         className="w-12 py-1 px-1 bg-transparent text-body text-ink outline-none text-center tabular"
+        aria-label="Secondi"
       />
     </div>
   );
