@@ -10,6 +10,9 @@ from src.ingestion.fit_parser import TelemetryIngestor
 from src.environment.stormglass_api import StormglassClient
 from src.heuristics.wind_vectors import WindEstimator
 from src.heuristics.maneuvers import ManeuverAnalyzer
+from src.heuristics.maneuver_log import write_diagnostic_log
+
+MANEUVERS_LOG_FILE = "maneuvers_log.txt"
 
 
 def _reconstruct_cog_from_gps(df: pd.DataFrame) -> pd.Series:
@@ -161,6 +164,18 @@ def main():
         df = analyzer.tag_points_of_sail(df, df['twd_dynamic'])
         maneuvers_log = analyzer.detect_maneuvers(df, df['twd_dynamic'])
         print(f"   → {len(maneuvers_log)} manovre rilevate.")
+
+        try:
+            write_diagnostic_log(
+                Path(MANEUVERS_LOG_FILE),
+                file_path.name,
+                df,
+                maneuvers_log,
+                df['twd_dynamic'],
+            )
+            print(f"   → log diagnostico: {MANEUVERS_LOG_FILE}")
+        except Exception as e:
+            print(f"   ⚠️  log manovre fallito: {e}")
 
         # --- OUTPUT ---
         df = df.fillna(0.0)

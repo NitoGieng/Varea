@@ -16,6 +16,11 @@ from src.ingestion.fit_parser import TelemetryIngestor
 from src.environment.stormglass_api import StormglassClient
 from src.heuristics.wind_vectors import WindEstimator
 from src.heuristics.maneuvers import ManeuverAnalyzer
+from src.heuristics.maneuver_log import write_diagnostic_log
+
+# Log manovre sovrascritto ad ogni analisi. Path relativo alla CWD del processo
+# api.py (= root backend), così dopo un upload l'atleta lo apre senza cercarlo.
+MANEUVERS_LOG_FILE = "maneuvers_log.txt"
 
 app = FastAPI(title="The Admiralty API")
 
@@ -244,6 +249,22 @@ async def analyze_fit_file(file: UploadFile = File(...)):
         df = analyzer.tag_points_of_sail(df, df['twd_dynamic'])
         maneuvers_log = analyzer.detect_maneuvers(df, df['twd_dynamic'])
         df['twa'] = analyzer.angular_diff(df['cog_deg'], df['twd_dynamic']).abs()
+
+        # Log diagnostico leggibile nella root del backend. Non blocca la
+        # risposta API se per qualche motivo la scrittura fallisce.
+        try:
+            write_diagnostic_log(
+                Path(MANEUVERS_LOG_FILE),
+                file.filename,
+                df,
+                maneuvers_log,
+                df['twd_dynamic'],
+            )
+            tot_v = sum(1 for m in maneuvers_log if 'virata' in (m.get('type') or '').lower())
+            tot_s = sum(1 for m in maneuvers_log if 'strambata' in (m.get('type') or '').lower())
+            print(f"📄 Log manovre: {MANEUVERS_LOG_FILE}  ({tot_v}V / {tot_s}S)")
+        except Exception as e:
+            print(f"⚠️  Scrittura log manovre fallita: {e}")
 
         # --- FASE 5: OUTPUT JSON DOPPIO BINARIO ---
         print("5/5 Generazione Output...")
