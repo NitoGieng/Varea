@@ -841,13 +841,42 @@ function RelativeInput({
 }
 
 function ClockInput({ value, onChange }: { value: string; onChange: (hms: string) => void }) {
+  // Commit su blur/Enter invece di per-keystroke: <input type="time" step="1">
+  // emette onChange ad ogni cifra digitata, producendo valori intermedi che,
+  // passati al cross-push del parent (end = max(newStart+1s, end)), potevano
+  // trascinare l'altro lato della finestra mentre l'utente finiva di scrivere.
+  // Stato locale durante l'edit, push al parent solo alla conferma.
+  const [local, setLocal] = useState(value);
+  const externalRef = useRef(value);
+
+  useEffect(() => {
+    if (value !== externalRef.current) {
+      externalRef.current = value;
+      setLocal(value);
+    }
+  }, [value]);
+
+  const commit = () => {
+    if (local !== value) {
+      externalRef.current = local;
+      onChange(local);
+    }
+  };
+
   return (
     <div className="flex items-center bg-bg border border-border rounded-md focus-within:border-gold overflow-hidden font-mono">
       <input
         type="time"
         step="1"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
+        value={local}
+        onChange={(e) => setLocal(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            commit();
+            (e.target as HTMLInputElement).blur();
+          }
+        }}
         className="py-1 px-2 bg-transparent text-body text-ink outline-none tabular"
       />
     </div>
