@@ -1,5 +1,6 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from pathlib import Path
 import tempfile
 import os
@@ -48,11 +49,17 @@ def save_cached_weather(session_id, api_data):
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# GZip sulle risposte >1KB. Il payload /api/analyze cresce linearmente con la
+# durata della sessione (high_res_track 1Hz): una sessione 6h è ~2-3MB di JSON
+# ad alta compressibilità (molti float ripetuti, campi andatura testuali).
+# La compressione browser-side è trasparente ed è lo standard per questo caso.
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 @app.post("/api/analyze")
 async def analyze_fit_file(file: UploadFile = File(...)):
@@ -152,10 +159,21 @@ async def analyze_fit_file(file: UploadFile = File(...)):
             print("⚠️ Nessuna API Key. Uso la stima GPS.")
         
         # --- RESAMPLING A 1Hz ---
+        # Interpolazione LIMITATA a gap di 30s. Su file multi-ora l'auto-pause
+        # Garmin (o una pausa pranzo) crea buchi da decine di minuti: senza
+        # limit, la resample+interpolate riempie quei gap con punti GPS lineari
+        # fra il "prima" e il "dopo", generando tracciato fittizio, SOG interpolata
+        # e manovre fantasma nel segmento inventato. Gap >30s restano NaN e le
+        # righe vengono droppate subito dopo: il detector riceve solo sample reali.
         print("Standardizzazione frequenza a 1Hz...")
         df.index = pd.to_datetime(df.index)
-        df = df.resample('1s').interpolate(method='linear')
-        df['cog_deg'] = df['cog_deg'].ffill()
+        df = df.resample('1s').interpolate(method='linear', limit=30, limit_direction='forward')
+        df['cog_deg'] = df['cog_deg'].ffill(limit=30)
+        pre_drop = len(df)
+        df = df.dropna(subset=['lat', 'lon', 'sog_knots'])
+        dropped = pre_drop - len(df)
+        if dropped > 0:
+            print(f"   → scartate {dropped}s di gap temporali (>30s, pausa o segnale perso).")
 
         # --- FASE 3: CALCOLO VENTO DINAMICO ---
         print("3/4 Generazione Curva Vento Dinamica...")
