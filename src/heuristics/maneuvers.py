@@ -313,11 +313,26 @@ class ManeuverAnalyzer:
                 pre_vote = float(pre_twa.median()) if len(pre_twa) >= 4 else None
                 post_vote = float(post_twa.median()) if len(post_twa) >= 4 else None
 
-                if pre_vote is not None and post_vote is not None:
-                    combined = (pre_vote + post_vote) / 2.0
-                    m_type = 'Virata' if combined < 90 else 'Strambata'
-                elif pre_vote is not None:
-                    m_type = 'Virata' if pre_vote < 90 else 'Strambata'
+                # Voto asimmetrico pre-dominante. La pos of sail PRIMA della
+                # manovra determina la geometria del crossing: da lasco/poppa
+                # (|TWA|>100°) l'unica transizione fisica a un'altra andatura
+                # e' attraverso poppa (strambata); da bolina stretta (|TWA|<80°)
+                # e' attraverso prua (virata). La media pre/post precedente
+                # veniva annacquata quando pre e post stavano su lati opposti
+                # (es. pre=116° post=60° → media 88° < 90° → falsa Virata),
+                # perdendo strambate scrappy che rientravano in bolina dopo
+                # il gybe. La fascia [80°,100°] resta grigia: conservo il voto
+                # mediato come fallback.
+                if pre_vote is not None:
+                    if pre_vote > 100.0:
+                        m_type = 'Strambata'
+                    elif pre_vote < 80.0:
+                        m_type = 'Virata'
+                    elif post_vote is not None:
+                        combined = (pre_vote + post_vote) / 2.0
+                        m_type = 'Virata' if combined < 90 else 'Strambata'
+                    else:
+                        m_type = 'Virata' if pre_vote < 90 else 'Strambata'
                 elif post_vote is not None:
                     m_type = 'Virata' if post_vote < 90 else 'Strambata'
                 else:
