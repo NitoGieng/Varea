@@ -62,7 +62,7 @@ Pipeline is the same across all entry points: **ingest → enrich → estimate w
 
 - **`src/ingestion/fit_parser.py`** — `TelemetryIngestor.process()` decodes `.FIT` (via `fitparse`) or `.CSV`, converts semicircles→degrees and m/s→knots, resamples to **1 Hz**, applies outlier masking (SOG cap 50 kts, accel cap 15 kts/s), and 3-sample rolling smoothing on `sog_knots`. Returns a `DataFrame` indexed by timestamp with at least `lat`, `lon`, `sog_knots`, `cog_deg`.
 
-- **`src/environment/stormglass_api.py`** — `StormglassClient` pulls historical `windDirection` for the session's start lat/lon and time range. `api.py` additionally implements a **session-level cache in `weather_cache.json`** keyed by start-timestamp to avoid burning API quota across reruns.
+- **`src/environment/stormglass_api.py`** — `StormglassClient.fetch_weather_for_session(df)` pulls historical `windDirection` (e altri parametri) per la **avg lat/lon** della sessione e cacha la risposta in `data/cache/<md5>.json` (chiave: lat/lon arrotondati a 0.1° + data) tramite `JSONCacheManager`. Tutti e tre i frontend (CLI/Streamlit/FastAPI) usano questo client: nessuna cache parallela.
 
 - **`src/heuristics/wind_vectors.py`** — `WindEstimator.estimate_twd()` infers TWD by histogramming valid COG (SOG > 4 kts), smoothing circularly, picking the two dominant peaks (tack/gybe directions), and returning the midpoint. If Stormglass provides `api_twd`, it's used as a sanity check/fallback. This is the **only** source of wind when the API is unavailable.
 
@@ -70,9 +70,9 @@ Pipeline is the same across all entry points: **ingest → enrich → estimate w
 
 ### Critical nuances
 
-- **COG fallback**: Many Garmin `.FIT` files have missing or all-zero `cog_deg`. Both `app.py` and `api.py` reconstruct COG from consecutive GPS points using spherical trig (`np.arctan2(...)`) when needed. The CLI in `main.py` does **not** — so a CLI run on a Garmin file without a compass will degrade silently. If you add a new entry point, replicate the COG reconstruction.
+- **COG fallback**: Many Garmin `.FIT` files have missing or all-zero `cog_deg`. `main.py`, `api.py` e `tools/dump_maneuvers.py` ricostruiscono COG da lat/lon via bearing sferico (helper condiviso `main._reconstruct_cog_from_gps`). `app.py` (Streamlit legacy) ha la sua copia inline. Se aggiungi una nuova entry point, importa l'helper di main.py per non divergere.
 
-- **Dynamic TWD in `api.py`**: Unlike `app.py` (single TWD for the whole session), `api.py` builds a **time-varying TWD curve**. With Stormglass data it linearly interpolates between the hourly API values over the session length; without it, it runs the estimator on rolling 30-min blocks, unwraps the angular series, interpolates, and re-wraps to 0–360°. All TWA / point-of-sail calculations downstream use this dynamic curve.
+- **Dynamic TWD condivisa**: `main._build_dynamic_twd` è l'unica fonte della curva TWD time-varying — `main.py`, `api.py` e `tools/dump_maneuvers.py` la chiamano tutti. Con dati Stormglass interpola fra i valori orari (unwrap circolare → `np.interp` su epoch-seconds → re-wrap mod 360); senza, fa fallback su blocchi 30-min stimati dal GPS. `app.py` (Streamlit legacy) usa ancora un TWD costante. Tutte le TWA / andature downstream consumano questa curva.
 
 - **Dual-track API response**: `api.py` returns two parallel arrays — `track_data` (every 5th point, for the map) and `high_res_track` (full 1 Hz, for the start-analysis view). Adding a new field means deciding which track(s) it belongs in based on downstream consumption.
 
