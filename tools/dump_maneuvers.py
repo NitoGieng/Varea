@@ -262,12 +262,12 @@ def main():
     summary_df = pd.DataFrame(summary_rows)
     summary_path = f"{args.prefix}_summary.csv"
     summary_df.to_csv(summary_path, index=False)
-    print(f"✅ Summary: {summary_path} ({len(summary_rows)} righe)")
+    print(f"[OK] Summary: {summary_path} ({len(summary_rows)} righe)")
 
     timeline_df = _build_timeline(df, maneuvers)
     timeline_path = f"{args.prefix}_timeline.csv"
     timeline_df.to_csv(timeline_path, index=False)
-    print(f"✅ Timeline: {timeline_path} ({len(timeline_df)} righe)")
+    print(f"[OK] Timeline: {timeline_path} ({len(timeline_df)} righe)")
 
     print("\nAnnotare 'type_truth' (Virata/Strambata) nel summary e salvarlo:")
     print("diventa il ground truth per la validazione del classificatore v2.")
