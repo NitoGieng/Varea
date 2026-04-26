@@ -211,6 +211,14 @@ __marimo__/
 # Dati grezzi e telemetrie (Privacy e Peso)
 data/raw_fit/*.fit
 data/processed/
+*.fit
+*.FIT
+*.csv
+
+# Output diagnostici lanciati dalla CLI / dump_maneuvers
+maneuvers_log.txt
+*_summary.csv
+*_timeline.csv
 
 # Cache delle API e credenziali
 .env
