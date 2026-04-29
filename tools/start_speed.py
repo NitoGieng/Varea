@@ -102,11 +102,11 @@ def main():
     window = df.iloc[lo:hi]
 
     print()
-    print(f"Finestra ±{w}s attorno a {_ts_local(target)} (locale):")
-    print("  ora      | Δs  | SOG (kts) | COG (°)")
-    print("-" * 44)
+    print(f"Finestra +/-{w}s attorno a {_ts_local(target)} (locale):")
+    print("  ora      | d_s | SOG (kts) | COG (deg)")
+    print("-" * 46)
     for idx, (ts, row) in enumerate(window.iterrows(), start=lo):
-        marker = ' ◄' if idx == i else ''
+        marker = ' <--' if idx == i else ''
         offset = idx - i
         print(
             f"  {_ts_local(ts)} | {offset:+3d} | "
@@ -119,7 +119,7 @@ def main():
     sog_avg = float(window['sog_knots'].mean())
 
     print()
-    print(f"SOG al taglio ({_ts_local(df.index[i])}): {sog_at:.2f} kts (COG {cog_at:.1f}°)")
+    print(f"SOG al taglio ({_ts_local(df.index[i])}): {sog_at:.2f} kts (COG {cog_at:.1f} deg)")
     print(f"Picco nella finestra: {sog_max:.2f} kts | media: {sog_avg:.2f} kts")
 
 
