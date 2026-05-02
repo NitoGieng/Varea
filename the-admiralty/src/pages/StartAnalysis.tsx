@@ -294,7 +294,7 @@ export default function StartAnalysis({ sessions }: Props) {
               {hasData && (
                 <div className="grid grid-cols-3 gap-2">
                   <div className="text-center">
-                    <div className="text-eyebrow uppercase tracking-eyebrow text-ink-muted mb-1">Accel -15s</div>
+                    <div className="text-eyebrow uppercase tracking-eyebrow text-ink-muted mb-1">-15s</div>
                     <div className="text-body-lg font-mono tabular font-bold text-ink-2">
                       {maxPreStart.toFixed(1)}<span className="text-[10px] font-sans text-ink-muted ml-0.5">kts</span>
                     </div>
@@ -306,7 +306,7 @@ export default function StartAnalysis({ sessions }: Props) {
                     </div>
                   </div>
                   <div className="text-center">
-                    <div className="text-eyebrow uppercase tracking-eyebrow text-ink-muted mb-1">Cruise +15s</div>
+                    <div className="text-eyebrow uppercase tracking-eyebrow text-ink-muted mb-1">+15s</div>
                     <div className="text-body-lg font-mono tabular font-bold text-ink-2">
                       {avgPostStart.toFixed(1)}<span className="text-[10px] font-sans text-ink-muted ml-0.5">kts</span>
                     </div>
