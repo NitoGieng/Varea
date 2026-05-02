@@ -2,7 +2,10 @@ import { motion } from 'framer-motion';
 import { BackgroundPaths } from '../components/BackgroundPaths';
 
 interface Props {
-  onEnter: (files: FileList) => void;
+  // File[] anziche' FileList: il reset implicito dell'input al unmount
+  // della Landing puo' svuotare la FileList live prima che React committi
+  // lo state in App, mentre File[] e' uno snapshot stabile.
+  onEnter: (files: File[]) => void;
 }
 
 // Landing page: prima schermata che il visitatore vede. Il CTA apre
@@ -100,8 +103,9 @@ export default function Landing({ onEnter }: Props) {
                 accept=".fit,.FIT,.csv,.CSV"
                 className="hidden"
                 onChange={(e) => {
-                  if (e.target.files && e.target.files.length > 0) onEnter(e.target.files);
-                  e.target.value = '';
+                  if (e.target.files && e.target.files.length > 0) {
+                    onEnter(Array.from(e.target.files));
+                  }
                 }}
               />
             </label>

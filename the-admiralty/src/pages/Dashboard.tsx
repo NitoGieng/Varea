@@ -12,10 +12,11 @@ import { parseBackendTimestamp } from '../utils/time';
 import { DEFAULT_FLY_THRESHOLD } from '../utils/foiling';
 
 interface DashboardProps {
-  // File selezionati nella landing: se presenti l'analisi parte al mount,
-  // cosi' l'utente non rivede l'empty-state "Carica file .FIT" subito dopo
-  // aver gia' scelto il file dalla landing.
-  initialFiles?: FileList | null;
+  // File selezionati nella landing: se presenti l'analisi parte al mount.
+  // File[] anziche' FileList: la FileList live dell'input puo' svuotarsi
+  // mentre la Landing si smonta, lasciando initialFiles vuota al mount
+  // del Dashboard. L'array e' uno snapshot stabile.
+  initialFiles?: File[] | null;
 }
 
 export default function Dashboard({ initialFiles }: DashboardProps = {}) {
@@ -222,7 +223,7 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
       ? crypto.randomUUID()
       : `sess-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-  const handleFilesUpload = async (files: FileList) => {
+  const handleFilesUpload = async (files: FileList | File[]) => {
     const fileArr = Array.from(files);
     if (fileArr.length === 0) return;
 

@@ -8,7 +8,7 @@ function App() {
   // fa partire l'analisi al mount. Stato locale e unidirezionale: un refresh
   // ripropone la landing.
   const [hasEntered, setHasEntered] = useState(false);
-  const [initialFiles, setInitialFiles] = useState<FileList | null>(null);
+  const [initialFiles, setInitialFiles] = useState<File[] | null>(null);
 
   if (!hasEntered) {
     return (
