@@ -15,6 +15,9 @@ export interface LabSession {
   maneuvers: Maneuver[];
   trackData: TrackPoint[];
   highResTrack: HighResPoint[];
+  // TWD media della sessione in gradi geografici (0=N). Serve a
+  // disegnare gli indicatori del vento sopra la mappa del footprint.
+  twd?: number;
 }
 
 interface ManeuverFootprintProps {
@@ -184,12 +187,35 @@ export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresho
 
     const traceColor = activeStatus?.label === 'FLY' ? FLY_COLOR : TOUCH_COLOR;
 
+    // Vento nel sistema di riferimento del footprint:
+    // - Y_svg+ (verso il basso sullo schermo) = direzione di marcia all'ingresso.
+    // - TWD geografica = direzione DA cui viene il vento (0=N, 90=E).
+    // - Direzione del flusso = TWD + 180.
+    // - In SVG, rotate(N) e' orario rispetto a Y_svg+. Quindi:
+    //   angolo della freccia = (TWD + 180 - entryCog) % 360.
+    const twd = activeSession?.twd;
+    const windAngleDeg = (typeof twd === 'number' && Number.isFinite(twd))
+      ? (((twd + 180 - entryCog) % 360) + 360) % 360
+      : null;
+
+    // viewBox numerico per posizionare gli indicatori del vento senza
+    // doverlo riparsare dalla stringa nel JSX.
+    const vb = {
+      x: cx - maxDim / 2 - padding,
+      y: cy - maxDim / 2 - padding,
+      w: maxDim + padding * 2,
+      h: maxDim + padding * 2,
+    };
+
     return {
       points,
       viewBox,
+      vb,
       turnPoint: { ...turnPoint, visualHeading },
       color: traceColor,
-      baseStroke
+      baseStroke,
+      twd: typeof twd === 'number' && Number.isFinite(twd) ? twd : null,
+      windAngleDeg,
     };
   }, [activeManeuver, activeSession, activeStatus]);
 
@@ -376,6 +402,84 @@ export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresho
                   x2="0" y2="10000"
                   stroke="#ffffff" strokeWidth={renderData.baseStroke * 0.3} strokeDasharray="4,4" opacity="0.12"
                 />
+
+                {/* Indicatori del vento: frecce di sfondo distribuite sul
+                    viewBox piu' una freccia principale con label TWD. La
+                    direzione e' identica per tutte (TWD costante nella
+                    finestra di una manovra) e ruotata nel frame del
+                    footprint. Disegnate prima della traiettoria cosi' la
+                    curva resta in primo piano. */}
+                {renderData.windAngleDeg != null && renderData.twd != null && (() => {
+                  const { vb, baseStroke, windAngleDeg, twd } = renderData;
+                  const bgArrowLen = baseStroke * 7;
+                  const mainArrowLen = baseStroke * 16;
+                  const bgPositions = [
+                    { x: vb.x + vb.w * 0.18, y: vb.y + vb.h * 0.30 },
+                    { x: vb.x + vb.w * 0.50, y: vb.y + vb.h * 0.65 },
+                    { x: vb.x + vb.w * 0.82, y: vb.y + vb.h * 0.78 },
+                  ];
+                  const mainPos = { x: vb.x + vb.w * 0.86, y: vb.y + vb.h * 0.13 };
+                  // Forma freccia "verso Y+" (riusabile): asta + punta.
+                  const renderArrow = (len: number, color: string, opacity: number, sw: number) => (
+                    <>
+                      <line
+                        x1="0" y1={-len / 2}
+                        x2="0" y2={len / 2 - len * 0.18}
+                        stroke={color}
+                        strokeWidth={sw}
+                        strokeLinecap="round"
+                        opacity={opacity}
+                      />
+                      <polygon
+                        points={`-${len * 0.13},${len / 2 - len * 0.22} 0,${len / 2} ${len * 0.13},${len / 2 - len * 0.22}`}
+                        fill={color}
+                        opacity={opacity}
+                      />
+                    </>
+                  );
+                  return (
+                    <g style={{ pointerEvents: 'none' }}>
+                      {bgPositions.map((p, i) => (
+                        <g
+                          key={`wind-bg-${i}`}
+                          transform={`translate(${p.x}, ${p.y}) rotate(${windAngleDeg})`}
+                        >
+                          {renderArrow(bgArrowLen, BOAT_GOLD, 0.22, baseStroke * 0.4)}
+                        </g>
+                      ))}
+                      <g transform={`translate(${mainPos.x}, ${mainPos.y}) rotate(${windAngleDeg})`}>
+                        {renderArrow(mainArrowLen, BOAT_GOLD, 0.92, baseStroke * 0.7)}
+                      </g>
+                      {/* Label TWD ancorata al riquadro (non ruotata): cosi'
+                          il numero resta sempre leggibile a prescindere
+                          dalla direzione del vento. */}
+                      <g transform={`translate(${mainPos.x}, ${mainPos.y + mainArrowLen * 0.65})`}>
+                        <rect
+                          x={-baseStroke * 7}
+                          y={-baseStroke * 1.8}
+                          width={baseStroke * 14}
+                          height={baseStroke * 3.6}
+                          rx={baseStroke * 0.6}
+                          fill="#040d1a"
+                          opacity="0.75"
+                          stroke={BOAT_GOLD}
+                          strokeWidth={baseStroke * 0.2}
+                        />
+                        <text
+                          x="0"
+                          y={baseStroke * 0.4}
+                          fill={BOAT_GOLD}
+                          fontSize={baseStroke * 2.4}
+                          textAnchor="middle"
+                          dominantBaseline="middle"
+                          className="tracking-widest uppercase"
+                        >
+                          TWD {Math.round(twd)}°
+                        </text>
+                      </g>
+                    </g>
+                  );
+                })()}
 
                 {renderData.points.map((p, i) => {
                   if (i === 0) return null;

@@ -175,6 +175,7 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
         trackData,
         highResTrack,
         maneuvers,
+        twd: s.environment?.computed_twd_deg,
       };
     });
   }, [sessions, debouncedRange]);
@@ -224,6 +225,7 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
       maneuvers: s.maneuvers,
       trackData: s.trackData,
       highResTrack: s.highResTrack,
+      twd: s.twd,
     }));
   }, [visibleFilteredSessions]);
 
