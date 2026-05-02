@@ -1,6 +1,9 @@
 import { useState, useMemo } from 'react';
 import ManeuverSpeedChart from '../components/charts/ManeuverSpeedChart';
+import FlyThresholdControl from '../components/FlyThresholdControl';
 import type { Maneuver, HighResPoint } from '../types/telemetry';
+import { parseBackendTimestamp } from '../utils/time';
+import { getFoilingStatus } from '../utils/foiling';
 
 // Sessione nel registro manovre. Multi-atleta con un array; con singolo
 // elemento si comporta come la versione single-session.
@@ -14,6 +17,10 @@ export interface ManeuversSession {
 
 interface Props {
   sessions: ManeuversSession[];
+  // Soglia FLY/TOUCH condivisa col Laboratorio: vive in Dashboard cosi' un
+  // cambio in una vista si riflette nell'altra. Default = DEFAULT_FLY_THRESHOLD.
+  flyThreshold: number;
+  onFlyThresholdChange: (v: number) => void;
 }
 
 // Manovra arricchita con identita' atleta. ID progressivi assegnati DOPO il
@@ -30,12 +37,11 @@ type ManeuverRow = Maneuver & {
 const ROWS_PER_PAGE = 50;
 const PAGINATION_THRESHOLD = 500;
 
-export default function Maneuvers({ sessions }: Props) {
+export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange }: Props) {
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<'ALL' | 'Virata' | 'Strambata'>('ALL');
   const [resultFilter, setResultFilter] = useState<'ALL' | 'FLY' | 'TOUCH'>('ALL');
   const [athleteFilter, setAthleteFilter] = useState<string>('ALL');
-  const [flyThreshold, setFlyThreshold] = useState<number>(12.0);
   const [isTypeDropdownOpen, setIsTypeDropdownOpen] = useState(false);
   const [isAthleteDropdownOpen, setIsAthleteDropdownOpen] = useState(false);
   const [collapsedLegs, setCollapsedLegs] = useState<Record<string, boolean>>({});
@@ -44,15 +50,16 @@ export default function Maneuvers({ sessions }: Props) {
 
   const isMulti = sessions.length > 1;
 
-  // Timestamp dal backend sono UTC (spec .FIT). Append 'Z' per parse corretto,
-  // poi getHours/Minutes/Seconds ritornano nel fuso del browser (=fuso di
-  // regata quando l'utente rivede dal proprio device).
+  // Timestamp dal backend sono tz-aware UTC (`+00:00`); parseBackendTimestamp
+  // riconosce sia `Z` sia l'offset esplicito. getHours/Minutes/Seconds
+  // ritornano nel fuso del browser (=fuso di regata quando l'utente rivede
+  // dal proprio device).
   const safeTime = (ts: string | undefined) => {
     if (!ts) return '--:--:--';
     try {
-      const norm = ts.replace(' ', 'T');
-      const d = new Date(norm.endsWith('Z') ? norm : norm + 'Z');
-      if (isNaN(d.getTime())) return '--:--:--';
+      const ms = parseBackendTimestamp(ts);
+      if (isNaN(ms)) return '--:--:--';
+      const d = new Date(ms);
       const hh = String(d.getHours()).padStart(2, '0');
       const mm = String(d.getMinutes()).padStart(2, '0');
       const ss = String(d.getSeconds()).padStart(2, '0');
@@ -97,7 +104,7 @@ export default function Maneuvers({ sessions }: Props) {
         if (!hay.includes(query)) return false;
       }
       if (typeFilter !== 'ALL' && m.type !== typeFilter) return false;
-      const isFly = m.sog_min != null && m.sog_min >= flyThreshold;
+      const isFly = m.sog_min != null && getFoilingStatus(m.sog_min, flyThreshold).label === 'FLY';
       if (resultFilter === 'FLY' && !isFly) return false;
       if (resultFilter === 'TOUCH' && isFly) return false;
       return true;
@@ -120,8 +127,11 @@ export default function Maneuvers({ sessions }: Props) {
     for (const m of visibleRows) {
       if (!m.timestamp) continue;
       const timeStr = safeTime(m.timestamp);
-      const hour = timeStr !== '--:--:--' ? timeStr.substring(0, 2) : '00';
-      const legName = `Leg ${hour}:00 — ${parseInt(hour) + 1}:00`;
+      const hourStr = timeStr !== '--:--:--' ? timeStr.substring(0, 2) : '00';
+      const startHour = parseInt(hourStr, 10);
+      const safeStartHour = Number.isFinite(startHour) ? startHour : 0;
+      const endHour = (safeStartHour + 1) % 24;
+      const legName = `Leg ${String(safeStartHour).padStart(2, '0')}:00 — ${String(endHour).padStart(2, '0')}:00`;
       if (!groups[legName]) groups[legName] = [];
       groups[legName].push(m);
     }
@@ -140,19 +150,44 @@ export default function Maneuvers({ sessions }: Props) {
   };
 
   const handleExportCSV = () => {
-    let csv = 'Atleta,Ora,Tipo,SOG_Ingresso,SOG_Minima,SOG_Uscita,Delta_V,Dist_Leg_NM,Risultato,Durata_Totale_sec,TTR_sec,TTR_Target_kts\n';
-    filteredManeuvers.forEach(m => {
+    // Escape RFC4180: virgolette, virgole e newline obbligano il quoting
+    // del campo. L'athleteLabel e' rinominabile dall'utente — senza escape
+    // un nome con la virgola spaccava in due colonne.
+    const csvCell = (v: unknown): string => {
+      if (v == null) return '';
+      const s = String(v);
+      if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+      return s;
+    };
+    const header = ['Atleta', 'Ora', 'Tipo', 'SOG_Ingresso', 'SOG_Minima', 'SOG_Uscita', 'Delta_V', 'Dist_Leg_NM', 'Risultato', 'Durata_Totale_sec', 'TTR_sec', 'TTR_Target_kts'];
+    const rows = filteredManeuvers.map(m => {
       const time = safeTime(m.timestamp);
-      const isFly = m.sog_min != null && m.sog_min >= flyThreshold;
+      const isFly = m.sog_min != null && getFoilingStatus(m.sog_min, flyThreshold).label === 'FLY';
       const ttr = m.recovery_time_s != null ? m.recovery_time_s : 'Fail';
       const dur = m.duration_s != null ? m.duration_s : 'Fail';
-      csv += `${m.athleteLabel},${time},${m.type},${m.sog_in},${m.sog_min},${m.sog_out},${m.delta_v},${m.leg_distance_nm || 0},${isFly ? 'FLY' : 'TOUCH'},${dur},${ttr},${m.ttr_target_sog}\n`;
+      return [
+        m.athleteLabel,
+        time,
+        m.type,
+        m.sog_in,
+        m.sog_min,
+        m.sog_out,
+        m.delta_v,
+        m.leg_distance_nm ?? 0,
+        isFly ? 'FLY' : 'TOUCH',
+        dur,
+        ttr,
+        m.ttr_target_sog,
+      ].map(csvCell).join(',');
     });
+    const csv = [header.join(','), ...rows].join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
+    link.href = url;
     link.download = 'registro_manovre_filtrato.csv';
     link.click();
+    URL.revokeObjectURL(url);
   };
 
   // Header griglia — riusato da leg grouping e modalita' paginata.
@@ -172,7 +207,7 @@ export default function Maneuvers({ sessions }: Props) {
   const renderRow = (m: ManeuverRow) => {
     const isTack = m.type === 'Virata';
     const isPositive = (m.delta_v ?? 0) >= 0;
-    const isFly = m.sog_min != null && m.sog_min >= flyThreshold;
+    const isFly = m.sog_min != null && getFoilingStatus(m.sog_min, flyThreshold).label === 'FLY';
     const timeString = safeTime(m.timestamp);
 
     return (
@@ -371,19 +406,7 @@ export default function Maneuvers({ sessions }: Props) {
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <span className="eyebrow">Soglia Fly</span>
-              <div className="flex items-center bg-bg border border-border rounded-md overflow-hidden px-2 focus-within:border-gold transition-colors duration-220">
-                <input
-                  type="number"
-                  step="0.5"
-                  value={flyThreshold}
-                  onChange={(e) => setFlyThreshold(Number(e.target.value))}
-                  className="w-12 py-1.5 text-body font-mono tabular text-ink outline-none text-right bg-transparent"
-                />
-                <span className="text-caption text-ink-muted pl-1 pr-2">kts</span>
-              </div>
-            </div>
+            <FlyThresholdControl value={flyThreshold} onChange={onFlyThresholdChange} />
 
           </div>
 

@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import type { HighResPoint } from '../types/telemetry';
+import { parseBackendTimestamp } from '../utils/time';
 
 // Una sessione nello start analyzer. Con un solo elemento la UI si comporta
 // come la versione single-session storica; con N elementi sovrappone le linee
@@ -75,26 +76,76 @@ function CustomTooltip(props: AnyProps) {
   );
 }
 
+// Time-input con commit su blur/Enter invece di per-keystroke.
+// `<input type="time" step="1">` emette onChange per ogni cifra digitata,
+// producendo valori intermedi (HH parziale) che, ri-anchorando subito il T=0,
+// facevano collassare il chart su finestre vuote durante l'edit. Stesso
+// principio dello ClockInput nel Dashboard FilterBar; uso il pattern
+// "derived state" per restare lint-clean su react-hooks/set-state-in-effect.
+function ClockInput({ value, onCommit }: { value: string; onCommit: (hms: string) => void }) {
+  const [local, setLocal] = useState(value);
+  const [lastExternal, setLastExternal] = useState(value);
+  if (value !== lastExternal) {
+    setLastExternal(value);
+    setLocal(value);
+  }
+
+  const commit = () => {
+    if (local !== value) {
+      setLastExternal(local);
+      onCommit(local);
+    }
+  };
+
+  return (
+    <input
+      type="time"
+      step="1"
+      value={local}
+      onChange={(e) => setLocal(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          commit();
+          (e.target as HTMLInputElement).blur();
+        }
+      }}
+      className="py-2 px-4 bg-transparent text-body-lg font-mono tabular font-bold text-ink outline-none"
+    />
+  );
+}
+
+// Default T=0 = ora di start della sessione primaria in fuso LOCALE del
+// browser (=fuso di regata). Coerente col filtro globale del Dashboard e
+// con il Registro Manovre, così i tempi restano comparabili tra viste.
+function deriveDefaultStartTime(sessionStart: string | undefined): string {
+  if (!sessionStart) return '12:00:00';
+  const ms = parseBackendTimestamp(sessionStart);
+  if (Number.isNaN(ms)) return '12:00:00';
+  const d = new Date(ms);
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  const ss = String(d.getSeconds()).padStart(2, '0');
+  return `${hh}:${mm}:${ss}`;
+}
+
 export default function StartAnalysis({ sessions }: Props) {
   const primary = sessions[0];
   const isMulti = sessions.length > 1;
 
-  // Default T=0 = ora di start della prima sessione in fuso LOCALE del
-  // browser (=fuso di regata). Coerente col filtro globale del Dashboard
-  // e con il Registro Manovre, così i tempi restano comparabili tra viste.
-  const [startTimeInput, setStartTimeInput] = useState<string>(() => {
-    if (!primary) return '12:00:00';
-    try {
-      const norm = primary.sessionStart.replace(' ', 'T');
-      const d = new Date(norm.endsWith('Z') ? norm : norm + 'Z');
-      const hh = String(d.getHours()).padStart(2, '0');
-      const mm = String(d.getMinutes()).padStart(2, '0');
-      const ss = String(d.getSeconds()).padStart(2, '0');
-      return `${hh}:${mm}:${ss}`;
-    } catch {
-      return '12:00:00';
-    }
-  });
+  const [startTimeInput, setStartTimeInput] = useState<string>(() => deriveDefaultStartTime(primary?.sessionStart));
+
+  // Re-anchor del default quando cambia la sessione primaria (rimozione
+  // dell'attiva, switch tra atleti, primo upload). Pattern "derived state":
+  // setState durante il render quando l'identita' della primary cambia,
+  // niente useEffect (lint-clean su react-hooks/set-state-in-effect).
+  // Senza questo re-anchor, la stringa restava bloccata sul valore della
+  // prima sessione caricata e la finestra T=0 finiva fuori range.
+  const [lastPrimaryId, setLastPrimaryId] = useState<string | undefined>(primary?.id);
+  if (primary?.id !== lastPrimaryId) {
+    setLastPrimaryId(primary?.id);
+    setStartTimeInput(deriveDefaultStartTime(primary?.sessionStart));
+  }
 
   // Epoch del T=0: prendiamo la data LOCALE della sessione primaria (tenendo
   // conto che sessionStart è in UTC) e applichiamo HH:MM:SS digitato come
@@ -102,8 +153,7 @@ export default function StartAnalysis({ sessions }: Props) {
   const tZeroEpoch = useMemo<number | null>(() => {
     if (!primary) return null;
     try {
-      const norm = primary.sessionStart.replace(' ', 'T');
-      const sessionStartMs = new Date(norm.endsWith('Z') ? norm : norm + 'Z').getTime();
+      const sessionStartMs = parseBackendTimestamp(primary.sessionStart);
       if (Number.isNaN(sessionStartMs)) return null;
       const ref = new Date(sessionStartMs);
       const parts = startTimeInput.split(':').map(Number);
@@ -125,8 +175,7 @@ export default function StartAnalysis({ sessions }: Props) {
     return sessions.map(s => {
       const points = s.trackData
         .map(pt => {
-          const norm = pt.timestamp.replace(' ', 'T');
-          const epoch = new Date(norm.endsWith('Z') ? norm : norm + 'Z').getTime();
+          const epoch = parseBackendTimestamp(pt.timestamp);
           return { epoch, sog: pt.sog_knots, cog: pt.cog_deg };
         })
         .filter(pt => pt.epoch >= startWin && pt.epoch <= endWin)
@@ -220,17 +269,11 @@ export default function StartAnalysis({ sessions }: Props) {
             Ora esatta del T=0 (lo sparo)
           </label>
           <div className="flex items-center bg-bg border border-border rounded-md focus-within:border-gold overflow-hidden w-fit transition-colors">
-            <input
-              type="time"
-              step="1"
-              value={startTimeInput}
-              onChange={(e) => setStartTimeInput(e.target.value)}
-              className="py-2 px-4 bg-transparent text-body-lg font-mono tabular font-bold text-ink outline-none"
-            />
+            <ClockInput value={startTimeInput} onCommit={setStartTimeInput} />
           </div>
           <p className="text-caption text-ink-muted mt-2">
             {isMulti
-              ? 'Tutti gli atleti vengono allineati a questo istante UTC.'
+              ? 'Tutti gli atleti vengono allineati a questo istante.'
               : 'Inserisci l\'orario reale in cui il comitato ha dato il via.'}
           </p>
         </div>

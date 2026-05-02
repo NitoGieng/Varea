@@ -12,8 +12,10 @@ interface Props {
   isUploading: boolean;
 }
 
-// Barra orizzontale delle sessioni caricate. Pill: pallino colore (clic =
-// attiva), label editabile on-click, toggle visibilita', X.
+// Barra orizzontale degli atleti caricati. Ogni sessione e' una "avatar
+// chip": cerchio colorato con iniziale (clic = imposta come attiva), label
+// editabile inline, toggle visibilita', X. Stato attivo = bordo gold +
+// surface-2; loading = pulse amber sull'avatar; error = bordo terra.
 export default function SessionsBar({
   sessions,
   activeSessionId,
@@ -52,23 +54,52 @@ export default function SessionsBar({
         {sessions.map((s) => {
           const isActive = s.id === effectiveActiveId;
           const editing = editingId === s.id;
+          // Iniziale: prima lettera del label (uppercase). Se il label e'
+          // vuoto o non ASCII-printable, fallback "?".
+          const initial = (s.label.trim().charAt(0) || '?').toUpperCase();
+
           return (
             <div
               key={s.id}
-              className={`flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-md border font-mono text-body transition-all duration-220 ease-varea ${
+              className={`group flex items-center gap-1.5 pl-1 pr-1.5 py-1 rounded-full border transition-all duration-220 ease-varea ${
                 isActive
                   ? 'border-gold bg-surface-2 shadow-card'
                   : 'border-border bg-bg hover:border-ink-muted'
-              } ${s.visible ? '' : 'opacity-50'}`}
+              } ${s.visible ? '' : 'opacity-50'} ${
+                s.status === 'error' ? '!border-terra/60' : ''
+              }`}
             >
+              {/* Avatar circolare: colore della sessione + iniziale.
+                  Testo navy scuro per contrasto su tutta la palette
+                  (gold/brass chiari, violet/terra scuri). */}
               <button
                 onClick={() => onSetActive(s.id)}
                 disabled={s.status !== 'ready'}
-                className="w-2.5 h-2.5 rounded-full flex-shrink-0 disabled:cursor-not-allowed"
+                className="relative w-7 h-7 rounded-full flex items-center justify-center shrink-0 disabled:cursor-not-allowed font-mono text-[0.7rem] font-semibold tabular text-[#0a1428] ring-1 ring-black/5 transition-transform duration-220 ease-varea hover:scale-105 disabled:hover:scale-100"
                 style={{ backgroundColor: s.color }}
-                title={s.status === 'ready' ? 'Imposta come sessione attiva' : 'Non ancora pronta'}
+                title={
+                  s.status === 'ready'
+                    ? 'Imposta come sessione attiva'
+                    : s.status === 'loading'
+                    ? 'Analisi in corso'
+                    : s.error ?? 'Errore'
+                }
                 aria-label="Attiva sessione"
-              />
+              >
+                {initial}
+                {s.status === 'loading' && (
+                  <span
+                    className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-amber animate-pulse ring-1 ring-bg"
+                    aria-hidden
+                  />
+                )}
+                {s.status === 'error' && (
+                  <span
+                    className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-terra ring-1 ring-bg"
+                    aria-hidden
+                  />
+                )}
+              </button>
 
               {editing ? (
                 <input
@@ -80,7 +111,7 @@ export default function SessionsBar({
                     if (e.key === 'Enter') commitRename(s.id, s.label);
                     if (e.key === 'Escape') setEditingId(null);
                   }}
-                  className="bg-transparent outline-none w-28 px-1 text-ink"
+                  className="bg-transparent outline-none w-28 px-1 text-body text-ink"
                 />
               ) : (
                 <button
@@ -88,31 +119,16 @@ export default function SessionsBar({
                     setEditingId(s.id);
                     setEditValue(s.label);
                   }}
-                  className="truncate max-w-[140px] text-ink hover:text-gold transition-colors duration-220 text-left px-1"
+                  className="truncate max-w-[140px] text-body text-ink hover:text-gold transition-colors duration-220 text-left px-1"
                   title={`${s.fileName} — clic per rinominare`}
                 >
                   {s.label}
                 </button>
               )}
 
-              {s.status === 'loading' && (
-                <span
-                  className="w-1.5 h-1.5 rounded-full bg-amber animate-pulse"
-                  title="Analisi in corso"
-                  aria-label="In analisi"
-                />
-              )}
-              {s.status === 'error' && (
-                <span
-                  className="w-1.5 h-1.5 rounded-full bg-terra"
-                  title={s.error ?? 'Errore di analisi'}
-                  aria-label="Errore"
-                />
-              )}
-
               <button
                 onClick={() => onToggleVisible(s.id)}
-                className="text-ink-muted hover:text-ink transition-colors duration-220 p-0.5"
+                className="text-ink-muted hover:text-ink transition-colors duration-220 p-1 rounded-full"
                 title={s.visible ? 'Nascondi dai grafici' : 'Mostra nei grafici'}
                 aria-label="Toggle visibilita'"
               >
@@ -130,7 +146,7 @@ export default function SessionsBar({
 
               <button
                 onClick={() => onRemove(s.id)}
-                className="text-ink-muted hover:text-terra transition-colors duration-220 p-0.5"
+                className="text-ink-muted hover:text-terra transition-colors duration-220 p-1 rounded-full"
                 title="Rimuovi sessione"
                 aria-label="Rimuovi"
               >
@@ -143,7 +159,7 @@ export default function SessionsBar({
         })}
 
         <label
-          className={`ml-auto cursor-pointer bg-ink text-bg hover:bg-gold px-3 py-1.5 text-eyebrow uppercase tracking-eyebrow rounded-md transition-colors duration-220 ease-varea ${
+          className={`ml-auto cursor-pointer bg-ink text-bg hover:bg-gold px-3 py-1.5 text-eyebrow uppercase tracking-eyebrow rounded-full transition-colors duration-220 ease-varea ${
             isUploading ? 'opacity-70 cursor-wait' : ''
           }`}
         >

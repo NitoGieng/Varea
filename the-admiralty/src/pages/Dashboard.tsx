@@ -7,8 +7,9 @@ import Lab from './Lab';
 import type { SessionData, AnalyzeResponse } from '../types/telemetry';
 import { assignColor } from '../data/palette';
 import SessionsBar from '../components/SessionsBar';
-
-type View = 'overview' | 'maneuvers' | 'lab' | 'start';
+import Sidebar, { type View } from '../components/Sidebar';
+import { parseBackendTimestamp } from '../utils/time';
+import { DEFAULT_FLY_THRESHOLD } from '../utils/foiling';
 
 export default function Dashboard() {
   // Stato multi-sessione. Un caricamento singolo produce un array di 1
@@ -43,16 +44,18 @@ export default function Dashboard() {
 
   const [currentView, setCurrentView] = useState<View>('overview');
 
+  // Soglia FLY/TOUCH sollevata qui per essere unica fra Manovre e Laboratorio:
+  // entrambe le viste leggono lo stesso valore via getFoilingStatus, cosi' una
+  // manovra a 9 kts non puo' essere FLY in una vista e TOUCH nell'altra.
+  const [flyThreshold, setFlyThreshold] = useState<number>(DEFAULT_FLY_THRESHOLD);
+
   // --- FILTRO TEMPORALE IN UTC ASSOLUTO ---
   const [useAbsoluteTime, setUseAbsoluteTime] = useState(false);
   const [pendingRange, setPendingRange] = useState<{ startMs: number; endMs: number } | null>(null);
   const [debouncedRange, setDebouncedRange] = useState<{ startMs: number; endMs: number } | null>(null);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const parseIsoMs = (s: string): number => {
-    const norm = s.replace(' ', 'T');
-    return new Date(norm.endsWith('Z') ? norm : norm + 'Z').getTime();
-  };
+  const parseIsoMs = (s: string): number => parseBackendTimestamp(s);
 
   const globalBounds = useMemo<{ startMs: number; endMs: number } | null>(() => {
     let minStart = Infinity;
@@ -540,12 +543,20 @@ export default function Dashboard() {
 
           {currentView === 'maneuvers' && (
             <div className="bg-bg text-ink min-h-[60vh]">
-              <Maneuvers sessions={maneuversSessions} />
+              <Maneuvers
+                sessions={maneuversSessions}
+                flyThreshold={flyThreshold}
+                onFlyThresholdChange={setFlyThreshold}
+              />
             </div>
           )}
 
           {currentView === 'lab' && (
-            <Lab sessions={labSessions} />
+            <Lab
+              sessions={labSessions}
+              flyThreshold={flyThreshold}
+              onFlyThresholdChange={setFlyThreshold}
+            />
           )}
 
           {currentView === 'start' && (
@@ -569,68 +580,6 @@ const VIEW_LABELS: Record<View, string> = {
   lab: 'Laboratorio',
   start: 'Start',
 };
-
-interface SidebarProps {
-  currentView: View;
-  onNavigate: (v: View) => void;
-}
-
-// Sidebar collapsibile: 56px collapsed, 240px expanded on hover.
-// Group hover sblocca le label e l'expand contemporaneamente.
-function Sidebar({ currentView, onNavigate }: SidebarProps) {
-  const items: { id: View; label: string; icon: ReactNode }[] = [
-    { id: 'overview', label: 'Panoramica', icon: <CompassIcon /> },
-    { id: 'maneuvers', label: 'Manovre', icon: <RotateIcon /> },
-    { id: 'lab', label: 'Laboratorio', icon: <ScatterIcon /> },
-    { id: 'start', label: 'Start', icon: <FlagIcon /> },
-  ];
-
-  return (
-    <aside className="group fixed left-0 top-0 bottom-0 z-50 w-14 hover:w-60 bg-surface-1 border-r border-border transition-[width] duration-260 ease-varea overflow-hidden flex flex-col">
-      <div className="h-14 flex items-center px-4 border-b border-border shrink-0">
-        <span className="font-serif italic text-2xl text-gold leading-none w-6 text-center">V</span>
-        <span className="ml-3 font-serif italic text-base text-ink whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-220 ease-varea">
-          Varea
-        </span>
-      </div>
-
-      <nav className="py-2 flex-1">
-        {items.map(item => {
-          const active = currentView === item.id;
-          return (
-            <button
-              key={item.id}
-              onClick={() => onNavigate(item.id)}
-              className={`w-full h-12 flex items-center px-4 relative transition-colors duration-220 ease-varea ${
-                active ? 'text-gold' : 'text-ink-2 hover:text-ink'
-              }`}
-            >
-              {active && <span className="absolute left-0 top-2 bottom-2 w-0.5 bg-gold" />}
-              <span className="w-6 h-6 flex items-center justify-center shrink-0">{item.icon}</span>
-              <span className="ml-3 text-eyebrow whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-220 ease-varea">
-                {item.label}
-              </span>
-            </button>
-          );
-        })}
-      </nav>
-
-      <div className="border-t border-border h-14 flex items-center px-4 shrink-0">
-        <button
-          onClick={() => document.documentElement.classList.toggle('dark')}
-          className="w-6 h-6 flex items-center justify-center text-ink-muted hover:text-gold transition-colors duration-220"
-          title="Inverti tema"
-          aria-label="Toggle tema"
-        >
-          <ThemeIcon />
-        </button>
-        <span className="ml-3 text-eyebrow text-ink-muted whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-220">
-          Tema
-        </span>
-      </div>
-    </aside>
-  );
-}
 
 interface TopbarProps {
   viewLabel: string;
@@ -846,19 +795,20 @@ function ClockInput({ value, onChange }: { value: string; onChange: (hms: string
   // passati al cross-push del parent (end = max(newStart+1s, end)), potevano
   // trascinare l'altro lato della finestra mentre l'utente finiva di scrivere.
   // Stato locale durante l'edit, push al parent solo alla conferma.
+  // Re-sync col parent via derived-state (confronto in render) anziche'
+  // useEffect+ref: la regola react-hooks/set-state-in-effect vieta setState
+  // dentro useEffect; il pattern qui sotto e' equivalente e canonical-React.
   const [local, setLocal] = useState(value);
-  const externalRef = useRef(value);
+  const [lastExternal, setLastExternal] = useState(value);
 
-  useEffect(() => {
-    if (value !== externalRef.current) {
-      externalRef.current = value;
-      setLocal(value);
-    }
-  }, [value]);
+  if (value !== lastExternal) {
+    setLastExternal(value);
+    setLocal(value);
+  }
 
   const commit = () => {
     if (local !== value) {
-      externalRef.current = local;
+      setLastExternal(local);
       onChange(local);
     }
   };
@@ -921,55 +871,3 @@ function StatCard({ label, value, unit }: { label: string; value: string; unit?:
   );
 }
 
-// ============================================================
-// ICONE — monoline 20px stroke 1.5
-// ============================================================
-
-function CompassIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
-      <circle cx="12" cy="12" r="9" />
-      <polygon points="14.5,9.5 12,15 9.5,9.5 12,4" fill="currentColor" stroke="none" opacity="0.85" />
-    </svg>
-  );
-}
-
-function RotateIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
-      <path d="M3 12a9 9 0 0 1 15.5-6.3M21 4v5h-5" />
-      <path d="M21 12a9 9 0 0 1-15.5 6.3M3 20v-5h5" />
-    </svg>
-  );
-}
-
-function ScatterIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
-      <path d="M3 21h18" />
-      <path d="M3 3v18" />
-      <circle cx="8" cy="16" r="1.2" fill="currentColor" />
-      <circle cx="13" cy="11" r="1.2" fill="currentColor" />
-      <circle cx="17" cy="14" r="1.2" fill="currentColor" />
-      <circle cx="19" cy="6" r="1.2" fill="currentColor" />
-      <circle cx="11" cy="7" r="1.2" fill="currentColor" />
-    </svg>
-  );
-}
-
-function FlagIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
-      <path d="M5 21V4" />
-      <path d="M5 4h11l-2 4 2 4H5" fill="currentColor" stroke="currentColor" opacity="0.85" />
-    </svg>
-  );
-}
-
-function ThemeIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
-      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z" />
-    </svg>
-  );
-}

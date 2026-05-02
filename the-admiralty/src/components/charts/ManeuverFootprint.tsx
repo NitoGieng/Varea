@@ -1,6 +1,9 @@
 import React, { useState, useMemo } from 'react';
 import ManeuverSpeedChart from './ManeuverSpeedChart';
+import FlyThresholdControl from '../FlyThresholdControl';
 import type { Maneuver, TrackPoint, HighResPoint } from '../../types/telemetry';
+import { parseBackendTimestamp } from '../../utils/time';
+import { getFoilingStatus } from '../../utils/foiling';
 
 // Una "lab session": tutto cio' che serve al footprint per un atleta.
 // trackData (0.2Hz) per il disegno geometrico, highResTrack (1Hz) per il
@@ -16,6 +19,11 @@ export interface LabSession {
 
 interface ManeuverFootprintProps {
   sessions: LabSession[];
+  // Soglia FLY/TOUCH unica con il Registro Manovre (sollevata in Dashboard).
+  // Sostituisce le vecchie soglie type-dependent locali (8.5 virata / 12
+  // strambata): stessa decisione in entrambe le viste.
+  flyThreshold: number;
+  onFlyThresholdChange: (v: number) => void;
 }
 
 // Fallback stabile per highResTrack: `?? []` inline romperebbe ref equality
@@ -28,18 +36,7 @@ const FLY_COLOR = '#7fa885';   // sage
 const TOUCH_COLOR = '#d4a24c'; // amber
 const BOAT_GOLD = '#c9a169';   // gold dark
 
-// --- REGOLE FOILING SEMPLIFICATE (FLY vs TOUCH) ---
-const getFoilingStatus = (type: string, sogMin: number) => {
-  const isTack = type.toLowerCase().includes('virata');
-  const threshold = isTack ? 8.5 : 12.0;
-
-  if (sogMin >= threshold) {
-    return { label: 'FLY' as const, color: 'text-sage', bg: 'bg-sage/10', border: 'border-sage/40' };
-  }
-  return { label: 'TOUCH' as const, color: 'text-amber', bg: 'bg-amber/10', border: 'border-amber/40' };
-};
-
-export default function ManeuverFootprint({ sessions }: ManeuverFootprintProps) {
+export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresholdChange }: ManeuverFootprintProps) {
   const [mode, setMode] = useState<'FLY' | 'TOUCH'>('FLY');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [hoveredTime, setHoveredTime] = useState<number | null>(null);
@@ -60,27 +57,27 @@ export default function ManeuverFootprint({ sessions }: ManeuverFootprintProps) 
     if (!ms || ms.length === 0) return [];
     return [...ms]
       .filter(m => {
-        const status = getFoilingStatus(m.type, Number(m.sog_min));
+        const status = getFoilingStatus(Number(m.sog_min) || 0, flyThreshold);
         return status.label === mode;
       })
       .sort((a, b) => mode === 'FLY' ? Number(b.sog_min) - Number(a.sog_min) : Number(a.sog_min) - Number(b.sog_min));
-  }, [activeSession, mode]);
+  }, [activeSession, mode, flyThreshold]);
 
   React.useEffect(() => { setSelectedIndex(0); }, [mode, activeSession?.id]);
   React.useEffect(() => { setHoveredTime(null); }, [selectedIndex, mode, activeSession?.id]);
 
   const activeManeuver = sortedManeuvers[selectedIndex];
-  const activeStatus = activeManeuver ? getFoilingStatus(activeManeuver.type, Number(activeManeuver.sog_min)) : null;
+  const activeStatus = activeManeuver ? getFoilingStatus(Number(activeManeuver.sog_min) || 0, flyThreshold) : null;
 
   const formatTime = (ts: string) => {
     if (!ts) return 'N/D';
     try {
-      // Backend emette UTC (spec .FIT). Append 'Z' per epoch corretto, poi
-      // toLocaleTimeString converte nel fuso del browser (=fuso di regata).
-      const norm = ts.replace(' ', 'T');
-      const date = new Date(norm.endsWith('Z') ? norm : norm + 'Z');
-      if (isNaN(date.getTime())) return ts;
-      return date.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      // Backend emette UTC con offset esplicito (`+00:00`); parseBackendTimestamp
+      // gestisce anche le forme storiche `Z` o tz-naive. toLocaleTimeString
+      // converte nel fuso del browser (=fuso di regata).
+      const ms = parseBackendTimestamp(ts);
+      if (isNaN(ms)) return ts;
+      return new Date(ms).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     } catch {
       return ts;
     }
@@ -94,10 +91,10 @@ export default function ManeuverFootprint({ sessions }: ManeuverFootprintProps) 
     let centerIdx = -1;
 
     if (activeManeuver.timestamp && trackData[0]?.timestamp) {
-      const targetT = new Date(activeManeuver.timestamp.replace(' ', 'T')).getTime();
+      const targetT = parseBackendTimestamp(activeManeuver.timestamp);
       let minDiff = Infinity;
       trackData.forEach((p, i) => {
-        const pt = new Date(p.timestamp.replace(' ', 'T')).getTime();
+        const pt = parseBackendTimestamp(p.timestamp);
         if (!isNaN(pt)) {
           const diff = Math.abs(pt - targetT);
           if (diff < minDiff) { minDiff = diff; centerIdx = i; }
@@ -126,10 +123,9 @@ export default function ManeuverFootprint({ sessions }: ManeuverFootprintProps) 
     const refLat = Number(validSegment[0].lat);
     const refLon = Number(validSegment[0].lon);
     const entryCog = Number(validSegment[0].cog_deg) || 0;
+    const centerIdxInSegment = Math.floor(validSegment.length / 2);
 
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-
-    const points = validSegment.map((p) => {
+    const points = validSegment.map((p, i) => {
       const lat = Number(p.lat);
       const lon = Number(p.lon);
 
@@ -140,23 +136,26 @@ export default function ManeuverFootprint({ sessions }: ManeuverFootprintProps) 
       const x_rot = x_m * Math.cos(theta) - y_m * Math.sin(theta);
       const y_rot = -(x_m * Math.sin(theta) + y_m * Math.cos(theta));
 
-      if (!isNaN(x_rot) && !isNaN(y_rot)) {
-        if (x_rot < minX) minX = x_rot;
-        if (x_rot > maxX) maxX = x_rot;
-        if (y_rot < minY) minY = y_rot;
-        if (y_rot > maxY) maxY = y_rot;
-      }
-
       const sog = Number(p.sog_knots) || 0;
 
       return {
         x: x_rot, y: y_rot, sog,
-        isCenter: p === validSegment[Math.floor(validSegment.length / 2)],
+        isCenter: i === centerIdxInSegment,
         lat, lon, time: p.timestamp
       };
     }).filter(p => !isNaN(p.x) && !isNaN(p.y));
 
     if (points.length < 2) return null;
+
+    // Bounding box calcolata in una passata sui soli punti validi: niente
+    // mutazione di variabili catturate nella callback di .map (regola
+    // react-hooks/immutability).
+    const xs = points.map(p => p.x);
+    const ys = points.map(p => p.y);
+    const minX = xs.length > 0 ? Math.min(...xs) : -50;
+    const maxX = xs.length > 0 ? Math.max(...xs) : 50;
+    const minY = ys.length > 0 ? Math.min(...ys) : -50;
+    const maxY = ys.length > 0 ? Math.max(...ys) : 50;
 
     const turnPointIndex = points.findIndex(p => p.isCenter);
     const safeTurnIndex = turnPointIndex !== -1 ? turnPointIndex : Math.floor(points.length / 2);
@@ -170,11 +169,6 @@ export default function ManeuverFootprint({ sessions }: ManeuverFootprintProps) 
       const dy = nextP.y - prevP.y;
       visualHeading = (Math.atan2(dy, dx) * (180 / Math.PI)) + 90;
     }
-
-    if (minX === Infinity) minX = -50;
-    if (maxX === -Infinity) maxX = 50;
-    if (minY === Infinity) minY = -50;
-    if (maxY === -Infinity) maxY = 50;
 
     const width = maxX - minX;
     const height = maxY - minY;
@@ -201,11 +195,11 @@ export default function ManeuverFootprint({ sessions }: ManeuverFootprintProps) 
 
   const boatMarker = useMemo(() => {
     if (hoveredTime == null || !renderData || !activeManeuver?.timestamp) return null;
-    const t0 = new Date(activeManeuver.timestamp.replace(' ', 'T')).getTime();
+    const t0 = parseBackendTimestamp(activeManeuver.timestamp);
     if (isNaN(t0)) return null;
     const target = t0 + hoveredTime * 1000;
     const pts = renderData.points;
-    const toEpoch = (t: string) => new Date((t || '').replace(' ', 'T')).getTime();
+    const toEpoch = (t: string) => parseBackendTimestamp(t);
     for (let i = 0; i < pts.length - 1; i++) {
       const ta = toEpoch(pts[i].time);
       const tb = toEpoch(pts[i + 1].time);
@@ -263,8 +257,8 @@ export default function ManeuverFootprint({ sessions }: ManeuverFootprintProps) 
         </div>
       )}
 
-      {/* Header controlli FLY/TOUCH */}
-      <div className="px-4 py-3 border-b border-border bg-surface-1 flex items-center justify-between">
+      {/* Header controlli FLY/TOUCH + soglia condivisa */}
+      <div className="px-4 py-3 border-b border-border bg-surface-1 flex items-center justify-between gap-4 flex-wrap">
         <div className="flex bg-bg border border-border rounded-md p-0.5">
           <button
             onClick={() => setMode('FLY')}
@@ -285,9 +279,16 @@ export default function ManeuverFootprint({ sessions }: ManeuverFootprintProps) 
             Manovre Touch
           </button>
         </div>
-        <span className="eyebrow">
-          {sortedManeuvers.length} in categoria
-        </span>
+        <div className="flex items-center gap-4">
+          <FlyThresholdControl
+            value={flyThreshold}
+            onChange={onFlyThresholdChange}
+            label="Soglia FLY/TOUCH"
+          />
+          <span className="eyebrow">
+            {sortedManeuvers.length} in categoria
+          </span>
+        </div>
       </div>
 
       <div className="flex flex-1 overflow-hidden min-h-[500px]">
@@ -297,7 +298,7 @@ export default function ManeuverFootprint({ sessions }: ManeuverFootprintProps) 
             <div className="p-6 text-center eyebrow mt-10">Nessuna manovra</div>
           ) : (
             sortedManeuvers.map((m, i) => {
-              const status = getFoilingStatus(m.type, Number(m.sog_min));
+              const status = getFoilingStatus(Number(m.sog_min) || 0, flyThreshold);
               const isSelected = selectedIndex === i;
               return (
                 <button
