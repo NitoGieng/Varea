@@ -2,12 +2,13 @@ import { motion } from 'framer-motion';
 import { BackgroundPaths } from '../components/BackgroundPaths';
 
 interface Props {
-  onEnter: () => void;
+  onEnter: (files: FileList) => void;
 }
 
-// Landing page: prima schermata che il visitatore vede. Niente upload qui:
-// l'azione e' solo il CTA "Inizia l'analisi" che spinge l'utente nella
-// dashboard, dove poi caricherà il .FIT.
+// Landing page: prima schermata che il visitatore vede. Il CTA apre
+// direttamente il file picker; la selezione di un .FIT/.CSV avvia subito
+// l'analisi nel Dashboard (vedi App.tsx + Dashboard.initialFiles), cosi' c'e'
+// un solo click fra "voglio iniziare" e l'analisi reale.
 export default function Landing({ onEnter }: Props) {
   const title = 'Varea';
 
@@ -86,15 +87,24 @@ export default function Landing({ onEnter }: Props) {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8, delay: 1.25 }}
           >
-            <button
-              onClick={onEnter}
-              className="group inline-flex items-center gap-3 px-8 py-4 bg-[#c9a169] hover:bg-[#e8cea0] text-[#0a1428] text-eyebrow uppercase tracking-eyebrow rounded-md transition-all duration-220 ease-varea hover:-translate-y-0.5 shadow-card-md"
+            <label
+              className="group inline-flex items-center gap-3 px-8 py-4 bg-[#c9a169] hover:bg-[#e8cea0] text-[#0a1428] text-eyebrow uppercase tracking-eyebrow rounded-md transition-all duration-220 ease-varea hover:-translate-y-0.5 shadow-card-md cursor-pointer"
             >
               <span>Inizia l'analisi</span>
               <span className="transition-transform duration-220 ease-varea group-hover:translate-x-1">
                 →
               </span>
-            </button>
+              <input
+                type="file"
+                multiple
+                accept=".fit,.FIT,.csv,.CSV"
+                className="hidden"
+                onChange={(e) => {
+                  if (e.target.files && e.target.files.length > 0) onEnter(e.target.files);
+                  e.target.value = '';
+                }}
+              />
+            </label>
           </motion.div>
         </motion.div>
       </div>

@@ -11,7 +11,14 @@ import Sidebar, { type View } from '../components/Sidebar';
 import { parseBackendTimestamp } from '../utils/time';
 import { DEFAULT_FLY_THRESHOLD } from '../utils/foiling';
 
-export default function Dashboard() {
+interface DashboardProps {
+  // File selezionati nella landing: se presenti l'analisi parte al mount,
+  // cosi' l'utente non rivede l'empty-state "Carica file .FIT" subito dopo
+  // aver gia' scelto il file dalla landing.
+  initialFiles?: FileList | null;
+}
+
+export default function Dashboard({ initialFiles }: DashboardProps = {}) {
   // Stato multi-sessione. Un caricamento singolo produce un array di 1
   // elemento: il comportamento single-player resta identico.
   const [sessions, setSessions] = useState<SessionData[]>([]);
@@ -274,6 +281,17 @@ export default function Dashboard() {
 
     setIsUploading(false);
   };
+
+  // Upload one-shot dei file passati dalla landing. Il ref impedisce il
+  // doppio mount di StrictMode (dev) di lanciare due upload identici.
+  const initialFilesProcessed = useRef(false);
+  useEffect(() => {
+    if (initialFilesProcessed.current) return;
+    if (!initialFiles || initialFiles.length === 0) return;
+    initialFilesProcessed.current = true;
+    handleFilesUpload(initialFiles);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleSetActive = (id: string) => setActiveSessionId(id);
   const handleToggleVisible = (id: string) =>
