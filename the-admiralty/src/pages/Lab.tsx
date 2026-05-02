@@ -14,8 +14,8 @@ interface LabProps {
 // ManeuverFootprint perche' lavora sulla logica del catalogo di manovre.
 export default function Lab({ sessions, flyThreshold, onFlyThresholdChange }: LabProps) {
   return (
-    <div className="px-6 lg:px-12 py-8 max-w-[1500px] mx-auto w-full h-[calc(100vh-180px)] flex flex-col">
-      <header className="pb-5 shrink-0">
+    <div className="px-6 lg:px-12 py-8 max-w-[1500px] mx-auto w-full">
+      <header className="pb-5">
         <p className="eyebrow mb-2">Laboratorio</p>
         <h1 className="font-serif italic text-h2 text-ink leading-none">Traiettorie</h1>
         <p className="text-caption text-ink-muted mt-3 max-w-2xl">
@@ -24,9 +24,9 @@ export default function Lab({ sessions, flyThreshold, onFlyThresholdChange }: La
         </p>
       </header>
 
-      <div className="rule-brass mb-5 shrink-0" />
+      <div className="rule-brass mb-5" />
 
-      <div className="bg-surface-1 border border-border rounded-lg shadow-card flex-1 flex flex-col overflow-hidden">
+      <div className="bg-surface-1 border border-border rounded-lg shadow-card overflow-hidden">
         <ManeuverFootprint
           sessions={sessions}
           flyThreshold={flyThreshold}

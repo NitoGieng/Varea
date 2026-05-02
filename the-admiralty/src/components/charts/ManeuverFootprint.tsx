@@ -220,14 +220,14 @@ export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresho
 
   if (sessions.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full bg-surface-1 eyebrow">
+      <div className="flex items-center justify-center h-[400px] bg-surface-1 eyebrow">
         Nessuna sessione visibile
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-full bg-surface-1">
+    <div className="flex flex-col bg-surface-1">
       {/* Selettore atleta — visibile solo in multi */}
       {isMulti && (
         <div className="px-4 py-2 border-b border-border bg-surface-1 flex items-center gap-3 overflow-x-auto">
@@ -291,7 +291,7 @@ export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresho
         </div>
       </div>
 
-      <div className="flex flex-1 overflow-hidden min-h-[500px]">
+      <div className="flex overflow-hidden h-[calc(100vh-340px)] min-h-[600px] max-h-[800px]">
         {/* Lista laterale */}
         <div className="w-80 border-r border-border overflow-y-auto bg-surface-1 divide-y divide-border z-20">
           {sortedManeuvers.length === 0 ? (
