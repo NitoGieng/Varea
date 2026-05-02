@@ -228,6 +228,8 @@ maneuvers_log.txt
 data/cache/
 *.json
 !requirements.txt
+# Config di deploy: vive nel repo come SSOT, non e' un report dell'analisi
+!the-admiralty/vercel.json
 
 # Streamlit (se lo userai per la dashboard)
 .streamlit/config.toml
