@@ -228,8 +228,13 @@ maneuvers_log.txt
 data/cache/
 *.json
 !requirements.txt
-# Config di deploy: vive nel repo come SSOT, non e' un report dell'analisi
+# Config del repo: vivono nel repo come SSOT, non sono report
 !the-admiralty/vercel.json
+!the-admiralty/package.json
+!the-admiralty/package-lock.json
+!the-admiralty/tsconfig.json
+!the-admiralty/tsconfig.app.json
+!the-admiralty/tsconfig.node.json
 
 # Streamlit (se lo userai per la dashboard)
 .streamlit/config.toml
