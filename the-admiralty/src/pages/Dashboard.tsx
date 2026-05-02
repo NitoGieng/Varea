@@ -568,16 +568,60 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
                     </span>
                     <span className="text-eyebrow text-ink-muted">°TWD</span>
                   </div>
-                  <p className="text-caption text-ink-muted mt-2 flex items-center gap-2 md:justify-end">
-                    <span className={`w-1.5 h-1.5 rounded-full ${environment.is_estimated ? 'bg-amber' : 'bg-sage'}`} />
-                    {environment.is_estimated ? 'Stimato GPS' : 'Stormglass'}
-                    <span className="text-ink-muted">·</span>
-                    <span className="font-mono tabular">{durationH}h {String(durationM).padStart(2, '0')}m</span>
-                  </p>
+                  {/* Pill fonte vento: amber per stima GPS, sage per Stormglass.
+                      Volutamente piu' visibile della vecchia riga col pallino:
+                      l'utente deve poter capire al volo se i numeri TWD/TWA
+                      derivano da osservazione satellitare o da euristica GPS. */}
+                  <div className="mt-3 flex items-center gap-2 md:justify-end flex-wrap">
+                    <span
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-eyebrow uppercase tracking-eyebrow ${
+                        environment.is_estimated
+                          ? 'bg-amber/10 border-amber/50 text-amber'
+                          : 'bg-sage/10 border-sage/50 text-sage'
+                      }`}
+                      title={environment.is_estimated
+                        ? 'Vento dedotto dalle traiettorie GPS: Stormglass non disponibile per questa sessione'
+                        : 'Vento da osservazione satellitare Stormglass'}
+                    >
+                      <span className={`w-1.5 h-1.5 rounded-full ${environment.is_estimated ? 'bg-amber' : 'bg-sage'}`} />
+                      {environment.is_estimated ? 'Stimato dal GPS' : 'Da Stormglass'}
+                    </span>
+                    <span className="text-caption text-ink-muted font-mono tabular">
+                      {durationH}h {String(durationM).padStart(2, '0')}m
+                    </span>
+                  </div>
                 </div>
               </header>
 
               <div className="rule-brass mb-10" />
+
+              {/* Notice esplicativo: visibile solo quando il vento e' stimato
+                  dal GPS, cosi' l'utente capisce che le metriche derivate
+                  (TWA, andature, VMG) ereditano l'incertezza dell'euristica
+                  invece di essere ancorate a un'osservazione satellitare. */}
+              {environment.is_estimated && (
+                <div className="mb-10 -mt-4 flex items-start gap-3 px-4 py-3 bg-amber/10 border border-amber/40 rounded-md">
+                  <svg
+                    className="w-5 h-5 text-amber shrink-0 mt-0.5"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    viewBox="0 0 24 24"
+                    aria-hidden
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m0 3.75h.007M12 3.75 2.25 21h19.5L12 3.75Z" />
+                  </svg>
+                  <div className="text-body text-ink leading-snug">
+                    <strong className="font-semibold">Vento stimato dal GPS.</strong>{' '}
+                    <span className="text-ink-2">
+                      Stormglass non era disponibile per questa sessione: la direzione
+                      del vento (TWD) e tutte le metriche derivate — andature, TWA, VMG —
+                      sono dedotte dall'euristica sui tuoi tracciati GPS, non da un'osservazione
+                      satellitare. Aspettati un margine di errore maggiore.
+                    </span>
+                  </div>
+                </div>
+              )}
 
               {/* HERO KPI — 2 metriche giant in mono */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
