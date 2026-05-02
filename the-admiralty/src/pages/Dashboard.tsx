@@ -8,8 +8,10 @@ import type { SessionData, AnalyzeResponse } from '../types/telemetry';
 import { assignColor } from '../data/palette';
 import SessionsBar from '../components/SessionsBar';
 import Sidebar, { type View } from '../components/Sidebar';
+import ExportReportModal, { type ExportConfig } from '../components/ExportReportModal';
 import { parseBackendTimestamp } from '../utils/time';
 import { DEFAULT_FLY_THRESHOLD } from '../utils/foiling';
+import { generateSessionReport } from '../utils/pdfExport';
 
 interface DashboardProps {
   // File selezionati nella landing: se presenti l'analisi parte al mount.
@@ -56,6 +58,13 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
   // entrambe le viste leggono lo stesso valore via getFoilingStatus, cosi' una
   // manovra a 9 kts non puo' essere FLY in una vista e TOUCH nell'altra.
   const [flyThreshold, setFlyThreshold] = useState<number>(DEFAULT_FLY_THRESHOLD);
+
+  // Stato del flusso di export PDF: modale aperta + ultimi valori inseriti
+  // dall'utente (sopravvivono alla chiusura cosi' un secondo export non
+  // richiede di riscrivere atleta/note).
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [athleteName, setAthleteName] = useState<string>('');
+  const [coachNotes, setCoachNotes] = useState<string>('');
 
   // --- FILTRO TEMPORALE IN UTC ASSOLUTO ---
   const [useAbsoluteTime, setUseAbsoluteTime] = useState(false);
@@ -315,6 +324,49 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
     downloadNode.remove();
   };
 
+  // Genera il PDF usando i dati gia' filtrati su debouncedRange e i parametri
+  // editati dall'utente nel modale. La soglia foiling editabile nel modale
+  // sovrascrive il flyThreshold globale solo per questo export, cosi' un
+  // allenatore puo' provare uno scenario "se la soglia fosse 14 kts" senza
+  // toccare le altre viste.
+  const handleExportReport = async (cfg: ExportConfig) => {
+    if (!telemetryData || !debouncedRange) return;
+    setAthleteName(cfg.athleteName);
+    setCoachNotes(cfg.coachNotes);
+    setIsExportModalOpen(false);
+
+    const filterStart = Math.min(debouncedRange.startMs, debouncedRange.endMs);
+    const filterEnd = Math.max(debouncedRange.startMs, debouncedRange.endMs);
+    const inRange = (ts: string | undefined) => {
+      if (!ts) return false;
+      const t = parseBackendTimestamp(ts);
+      return Number.isFinite(t) && t >= filterStart && t <= filterEnd;
+    };
+    const filteredTrack = telemetryData.track_data.filter(p => inRange(p.timestamp));
+    const filteredHighRes = telemetryData.high_res_track.filter(p => inRange(p.timestamp));
+    const filteredManeuvers = telemetryData.maneuvers.filter(m => inRange(m.timestamp));
+
+    try {
+      await generateSessionReport({
+        sessionInfo: telemetryData.session_info,
+        environment: telemetryData.environment,
+        trackData: filteredTrack,
+        highResTrack: filteredHighRes,
+        maneuvers: filteredManeuvers,
+        rangeStartMs: filterStart,
+        rangeEndMs: filterEnd,
+        athleteName: cfg.athleteName,
+        flyThreshold: cfg.flyThreshold,
+        coachNotes: cfg.coachNotes,
+        sessionStartIsoFull: telemetryData.session_info.start_time,
+        fileName: telemetryData.session_info.file_name,
+      });
+    } catch (err) {
+      console.error('Export PDF fallito:', err);
+      window.alert('Generazione PDF fallita. Controlla la console per i dettagli.');
+    }
+  };
+
   // ---------- LOADING / ERROR / FALLBACK ----------
   // Volutamente NIENTE upload qui: il file picker vive solo nella landing
   // CTA, cosi' l'utente non si imbatte mai in una "seconda" pagina di
@@ -474,6 +526,8 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
           onRemove={handleRemoveSession}
           onAddFiles={handleFilesUpload}
           isUploading={isUploading}
+          onExportReport={() => setIsExportModalOpen(true)}
+          canExportReport={!!telemetryData}
         />
 
         {currentView !== 'start' && (
@@ -593,6 +647,17 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
           )}
         </main>
       </div>
+
+      {isExportModalOpen && (
+        <ExportReportModal
+          onClose={() => setIsExportModalOpen(false)}
+          onConfirm={handleExportReport}
+          initialFlyThreshold={flyThreshold}
+          initialAthleteName={athleteName}
+          initialCoachNotes={coachNotes}
+          periodSeconds={debouncedRange ? Math.max(0, (debouncedRange.endMs - debouncedRange.startMs) / 1000) : 0}
+        />
+      )}
     </div>
   );
 }

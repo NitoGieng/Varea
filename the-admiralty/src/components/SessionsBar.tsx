@@ -10,6 +10,11 @@ interface Props {
   onRemove: (id: string) => void;
   onAddFiles: (files: FileList) => void;
   isUploading: boolean;
+  // Export PDF: il bottone vive in questa barra accanto a "+ Aggiungi" e
+  // viene mostrato solo quando c'e' almeno una sessione "ready"; il click
+  // delega al Dashboard l'apertura del modale di pre-export.
+  onExportReport?: () => void;
+  canExportReport?: boolean;
 }
 
 // Barra orizzontale degli atleti caricati. Ogni sessione e' una "avatar
@@ -25,6 +30,8 @@ export default function SessionsBar({
   onRemove,
   onAddFiles,
   isUploading,
+  onExportReport,
+  canExportReport,
 }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
@@ -158,26 +165,37 @@ export default function SessionsBar({
           );
         })}
 
-        <label
-          className={`ml-auto cursor-pointer bg-ink text-bg hover:bg-gold px-3 py-1.5 text-eyebrow uppercase tracking-eyebrow rounded-full transition-colors duration-220 ease-varea ${
-            isUploading ? 'opacity-70 cursor-wait' : ''
-          }`}
-        >
-          {isUploading ? '…' : '+ Aggiungi'}
-          <input
-            type="file"
-            multiple
-            className="hidden"
-            accept=".fit,.FIT,.csv,.CSV"
-            onChange={(e) => {
-              if (e.target.files && e.target.files.length > 0) {
-                onAddFiles(e.target.files);
-              }
-              e.target.value = '';
-            }}
-            disabled={isUploading}
-          />
-        </label>
+        <div className="ml-auto flex items-center gap-2">
+          {onExportReport && canExportReport && (
+            <button
+              onClick={onExportReport}
+              className="cursor-pointer bg-bg border border-gold text-gold hover:bg-gold hover:text-[#0a1428] px-3 py-1.5 text-eyebrow uppercase tracking-eyebrow rounded-full transition-colors duration-220 ease-varea"
+              title="Esporta un report PDF della finestra temporale selezionata"
+            >
+              Esporta PDF
+            </button>
+          )}
+          <label
+            className={`cursor-pointer bg-ink text-bg hover:bg-gold px-3 py-1.5 text-eyebrow uppercase tracking-eyebrow rounded-full transition-colors duration-220 ease-varea ${
+              isUploading ? 'opacity-70 cursor-wait' : ''
+            }`}
+          >
+            {isUploading ? '…' : '+ Aggiungi'}
+            <input
+              type="file"
+              multiple
+              className="hidden"
+              accept=".fit,.FIT,.csv,.CSV"
+              onChange={(e) => {
+                if (e.target.files && e.target.files.length > 0) {
+                  onAddFiles(e.target.files);
+                }
+                e.target.value = '';
+              }}
+              disabled={isUploading}
+            />
+          </label>
+        </div>
       </div>
     </div>
   );
