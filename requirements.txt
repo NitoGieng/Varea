@@ -1,0 +1,14 @@
+# Dipendenze Python per il backend di produzione (api.py).
+# Pin stretti su versioni testate in locale: Render replica esattamente
+# l'ambiente che gira sul portatile dell'utente, evitando surprise da
+# minor bumps su pandas/numpy. app.py (Streamlit legacy) non e' deployato
+# e non figura qui.
+
+fastapi==0.135.3
+uvicorn[standard]==0.44.0
+python-multipart==0.0.26
+python-dotenv==1.2.2
+fitparse==1.2.0
+numpy==2.4.4
+pandas==3.0.2
+requests==2.33.1

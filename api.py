@@ -22,9 +22,19 @@ MANEUVERS_LOG_FILE = "maneuvers_log.txt"
 
 app = FastAPI(title="The Admiralty API")
 
+# CORS: in produzione (Render) settare ALLOWED_ORIGINS con la lista delle
+# origini consentite separate da virgola (es. "https://varea.vercel.app").
+# In assenza della env var (=sviluppo locale) lasciamo "*" cosi' il Vite
+# dev server su porta variabile non viene bloccato.
+_allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "*").strip()
+_allowed_origins = (
+    ["*"] if _allowed_origins_env == "*"
+    else [o.strip() for o in _allowed_origins_env.split(",") if o.strip()]
+)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
