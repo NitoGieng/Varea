@@ -314,33 +314,41 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
     downloadNode.remove();
   };
 
-  // ---------- EMPTY STATE (nessuna sessione caricata) ----------
+  // ---------- LOADING / ERROR / FALLBACK ----------
+  // Volutamente NIENTE upload qui: il file picker vive solo nella landing
+  // CTA, cosi' l'utente non si imbatte mai in una "seconda" pagina di
+  // upload dopo aver gia' scelto il file. Sfondo navy/oro come la landing
+  // per una transizione visiva senza stacco.
   if (!telemetryData) {
     const loadingCount = sessions.filter(s => s.status === 'loading').length;
     const errorCount = sessions.filter(s => s.status === 'error').length;
     return (
-      <div className="min-h-screen bg-bg text-ink flex items-center justify-center p-8">
-        <div className="bg-surface-1 border border-border rounded-lg shadow-card-md p-12 text-center max-w-md w-full">
-          <p className="eyebrow mb-3">Telemetry analytics</p>
-          <h1 className="font-serif italic text-h1 text-ink leading-none mb-1">Varea</h1>
-          <div className="rule-brass mt-6 mb-8" />
-          <label className="block w-full bg-ink text-bg px-8 py-4 text-eyebrow uppercase tracking-eyebrow cursor-pointer hover:bg-gold transition-colors duration-220 ease-varea">
-            {loadingCount > 0 ? `Analisi ${loadingCount} file…` : 'Carica file .FIT'}
-            <input
-              type="file"
-              multiple
-              className="hidden"
-              accept=".fit,.FIT,.csv,.CSV"
-              onChange={(e) => {
-                if (e.target.files && e.target.files.length > 0) handleFilesUpload(e.target.files);
-                e.target.value = '';
-              }}
-              disabled={loadingCount > 0}
-            />
-          </label>
-          {errorCount > 0 && (
-            <p className="text-caption text-terra mt-4">
-              {errorCount} file non analizzati. Verifica che il backend sia attivo.
+      <div className="min-h-screen w-full flex items-center justify-center bg-gradient-to-b from-[#02060f] via-[#0a1d36] to-[#0e2a4d] text-[#f5f1e6] p-8">
+        <div className="text-center max-w-lg">
+          <p className="text-eyebrow uppercase tracking-eyebrow text-[#c9a169] mb-6">Telemetry analytics</p>
+          <h1 className="font-serif italic text-5xl sm:text-7xl text-[#f5f1e6] leading-none mb-6 tracking-tighter">Varea</h1>
+          <div className="mx-auto h-px w-24 bg-gradient-to-r from-transparent via-[#c9a169] to-transparent mb-8" />
+          {loadingCount > 0 ? (
+            <>
+              <p className="text-lg text-[#f5f1e6]/80 font-sans leading-relaxed mb-2 animate-pulse">
+                Analisi della sessione in corso…
+              </p>
+              <p className="text-sm text-[#f5f1e6]/50 font-sans">
+                Il primo upload puo' richiedere fino a 60 secondi (cold start backend).
+              </p>
+            </>
+          ) : errorCount > 0 ? (
+            <>
+              <p className="text-lg text-[#f5f1e6]/80 font-sans leading-relaxed mb-2">
+                Analisi fallita.
+              </p>
+              <p className="text-sm text-[#f5f1e6]/50 font-sans">
+                Verifica che il backend sia attivo e ricarica la pagina per riprovare.
+              </p>
+            </>
+          ) : (
+            <p className="text-lg text-[#f5f1e6]/80 font-sans leading-relaxed">
+              Nessuna sessione attiva. Ricarica la pagina per iniziare una nuova analisi.
             </p>
           )}
         </div>
