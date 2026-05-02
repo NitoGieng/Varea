@@ -335,7 +335,7 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
                 Analisi della sessione in corso…
               </p>
               <p className="text-sm text-[#f5f1e6]/50 font-sans">
-                Il primo upload puo' richiedere fino a 60 secondi (cold start backend).
+                L'operazione potrebbe richiedere qualche secondo.
               </p>
             </>
           ) : errorCount > 0 ? (
