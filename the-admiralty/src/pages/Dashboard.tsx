@@ -142,12 +142,27 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
       const pts = segTrack.filter((p) => keywords.some(kw => (p.andatura || '').toLowerCase().includes(kw)));
       return pts.length > 0 ? (pts.reduce((acc, p) => acc + p.sog_knots, 0) / pts.length).toFixed(1) : '--';
     };
+    // Percentuale tempo per andatura: rapporto fra punti classificati e
+    // totale punti del segmento. segTrack e' a 1 punto/5s, ma essendo
+    // numeratore e denominatore alla stessa risoluzione il rapporto
+    // approssima fedelmente il tempo realmente trascorso in quell'andatura.
+    const totalSamples = segTrack.length;
+    const getPctTime = (keywords: string[]) => {
+      if (totalSamples === 0) return null;
+      const pts = segTrack.filter((p) => keywords.some(kw => (p.andatura || '').toLowerCase().includes(kw)));
+      return (pts.length / totalSamples) * 100;
+    };
+    const periodHours = Math.max(0, (filterEndEpoch - filterStartEpoch) / 3_600_000);
     return {
       virate,
       strambate,
       bolina: getAvg(['bolina', 'upwind']),
       traverso: getAvg(['traverso', 'reaching']),
       poppa: getAvg(['poppa', 'lasco', 'downwind', 'run', 'broad']),
+      bolinaPct: getPctTime(['bolina', 'upwind']),
+      traversoPct: getPctTime(['traverso', 'reaching']),
+      poppaPct: getPctTime(['poppa', 'lasco', 'downwind', 'run', 'broad']),
+      periodHours,
       filteredManeuvers: segManeuvers,
       filteredTrack: segTrack,
       filteredHighRes: segHighRes,
@@ -661,16 +676,53 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
                 />
               </div>
 
-              {/* SEGMENT METRICS — 5 stat neutre */}
+              {/* SEGMENT METRICS — separati per natura della metrica.
+                  Volume (manovre conteggiate) vs performance (velocita'
+                  media per andatura): prima erano 5 card paritetiche,
+                  ma per un allenatore le velocita' per andatura sono
+                  l'informazione diagnostica primaria mentre i conteggi
+                  sono contesto. Due gruppi distinti con eyebrow e
+                  trattamento visivo differente (accent gold sulle
+                  performance) rendono la gerarchia esplicita. */}
               {segmentMetrics && (
-                <section className="mb-10">
-                  <p className="eyebrow mb-4">Segmento selezionato</p>
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                    <StatCard label="Virate" value={String(segmentMetrics.virate)} />
-                    <StatCard label="Strambate" value={String(segmentMetrics.strambate)} />
-                    <StatCard label="Bolina" value={segmentMetrics.bolina} unit="kts" />
-                    <StatCard label="Traverso" value={segmentMetrics.traverso} unit="kts" />
-                    <StatCard label="Poppa" value={segmentMetrics.poppa} unit="kts" />
+                <section className="mb-10 space-y-6">
+                  <div>
+                    <p className="eyebrow mb-3">Manovre · volume</p>
+                    <div className="grid grid-cols-2 gap-3 max-w-md">
+                      <VolumeCard
+                        label="Virate"
+                        value={segmentMetrics.virate}
+                        periodHours={segmentMetrics.periodHours}
+                      />
+                      <VolumeCard
+                        label="Strambate"
+                        value={segmentMetrics.strambate}
+                        periodHours={segmentMetrics.periodHours}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <p className="eyebrow mb-3">Velocità per andatura</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <PerformanceCard
+                        label="Bolina"
+                        value={segmentMetrics.bolina}
+                        unit="kts"
+                        pctTime={segmentMetrics.bolinaPct}
+                      />
+                      <PerformanceCard
+                        label="Traverso"
+                        value={segmentMetrics.traverso}
+                        unit="kts"
+                        pctTime={segmentMetrics.traversoPct}
+                      />
+                      <PerformanceCard
+                        label="Poppa"
+                        value={segmentMetrics.poppa}
+                        unit="kts"
+                        pctTime={segmentMetrics.poppaPct}
+                      />
+                    </div>
                   </div>
                 </section>
               )}
@@ -1018,14 +1070,64 @@ function KpiHero({ label, value, suffix, sub, highlight }: KpiHeroProps) {
   );
 }
 
-function StatCard({ label, value, unit }: { label: string; value: string; unit?: string }) {
+// Card "volume": metriche di conteggio (numero di manovre). Look neutro,
+// dimensione compatta. Subline con la frequenza oraria (es. "18/h")
+// calcolata sulla finestra del filtro temporale: aggiunge contesto senza
+// distrarre dal numero principale. Soppressa quando il periodo e' troppo
+// breve per stabilizzare il tasso (< 6 minuti).
+function VolumeCard({
+  label,
+  value,
+  periodHours,
+}: {
+  label: string;
+  value: number;
+  periodHours: number;
+}) {
+  const showRate = periodHours >= 0.1 && value > 0;
+  const rate = showRate ? value / periodHours : null;
   return (
     <div className="bg-surface-1 border border-border rounded-md p-4">
       <p className="eyebrow mb-3">{label}</p>
       <div className="flex items-baseline gap-1.5">
         <span className="font-mono text-2xl text-ink tabular leading-none">{value}</span>
-        {unit && <span className="text-caption text-ink-muted">{unit}</span>}
       </div>
+      <p className="text-caption text-ink-muted mt-2 font-mono tabular min-h-[1em]">
+        {rate != null ? `${rate.toFixed(0)}/h` : '\u00A0'}
+      </p>
+    </div>
+  );
+}
+
+// Card "performance": velocita' media per andatura. Variante gerarchica
+// piu' alta delle volume card — accent gold a sinistra (lo stesso bar
+// usato dalla KpiHero highlight), padding maggiore, valore leggermente
+// piu' grande. Subline con la percentuale di tempo trascorso in
+// quell'andatura nel periodo selezionato: aiuta a distinguere "Poppa
+// 18 kts ma 4% del tempo" (lampo isolato) da "Bolina 12 kts e 60% del
+// tempo" (regime dominante della sessione).
+function PerformanceCard({
+  label,
+  value,
+  unit,
+  pctTime,
+}: {
+  label: string;
+  value: string;
+  unit: string;
+  pctTime: number | null;
+}) {
+  return (
+    <div className="bg-surface-1 border border-border rounded-md p-5 relative overflow-hidden">
+      <div className="absolute top-0 left-0 w-0.5 h-full bg-gold" />
+      <p className="eyebrow mb-3">{label}</p>
+      <div className="flex items-baseline gap-1.5">
+        <span className="font-mono text-3xl text-ink tabular leading-none">{value}</span>
+        <span className="text-caption text-gold">{unit}</span>
+      </div>
+      <p className="text-caption text-ink-muted mt-2 min-h-[1em]">
+        {pctTime != null ? `${pctTime.toFixed(0)}% del tempo` : '\u00A0'}
+      </p>
     </div>
   );
 }
