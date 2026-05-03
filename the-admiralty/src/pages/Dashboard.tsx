@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import type { ReactNode } from 'react';
 import TelemetryMap from '../components/charts/TelemetryMap';
 import Maneuvers from './Maneuvers';
@@ -66,6 +66,15 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [athleteName, setAthleteName] = useState<string>('');
   const [coachNotes, setCoachNotes] = useState<string>('');
+
+  // Ref per delegare l'export CSV (filtrato per atleta/tipo/risultato) al
+  // dropdown della Topbar. Maneuvers vi registra il proprio handler corrente
+  // quando montato; la cleanup di useEffect rimette current=null al cambio
+  // vista, cosi' la Topbar non puo' chiamare un export sulla vista sbagliata.
+  const maneuversCsvExportRef = useRef<(() => void) | null>(null);
+  const handleExportCSVFromTopbar = useCallback(() => {
+    maneuversCsvExportRef.current?.();
+  }, []);
 
   // --- FILTRO TEMPORALE IN UTC ASSOLUTO ---
   const [useAbsoluteTime, setUseAbsoluteTime] = useState(false);
@@ -533,7 +542,10 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
       <div className="flex-1 ml-14 flex flex-col min-w-0">
         <Topbar
           viewLabel={VIEW_LABELS[currentView]}
-          onDownload={handleDownload}
+          onExportPDF={() => setIsExportModalOpen(true)}
+          onExportJSON={handleDownload}
+          onExportCSV={currentView === 'maneuvers' ? handleExportCSVFromTopbar : undefined}
+          hasSession={!!telemetryData}
           onUpload={handleFilesUpload}
           isUploading={isUploading}
         />
@@ -547,8 +559,6 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
           onRemove={handleRemoveSession}
           onAddFiles={handleFilesUpload}
           isUploading={isUploading}
-          onExportReport={() => setIsExportModalOpen(true)}
-          canExportReport={!!telemetryData}
         />
 
         {currentView !== 'start' && (
@@ -747,6 +757,7 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
                 sessions={maneuversSessions}
                 flyThreshold={flyThreshold}
                 onFlyThresholdChange={setFlyThreshold}
+                csvExportRef={maneuversCsvExportRef}
               />
             </div>
           )}
@@ -794,12 +805,30 @@ const VIEW_LABELS: Record<View, string> = {
 
 interface TopbarProps {
   viewLabel: string;
-  onDownload: () => void;
+  // Tre azioni di export con gerarchia visiva esplicita: PDF (secondario,
+  // outline gold), JSON+CSV consolidati nel dropdown "Esporta" (terziario),
+  // upload "Carica .FIT" come azione primaria (filled gold). PDF e dropdown
+  // sono disabilitati finche' non c'e' una sessione caricata: nulla da
+  // esportare. CSV passato solo dalla vista Manovre, dove i filtri locali
+  // definiscono il dataset.
+  onExportPDF: () => void;
+  onExportJSON: () => void;
+  onExportCSV?: () => void;
+  hasSession: boolean;
   onUpload: (files: FileList) => void;
   isUploading: boolean;
 }
 
-function Topbar({ viewLabel, onDownload, onUpload, isUploading }: TopbarProps) {
+function Topbar({ viewLabel, onExportPDF, onExportJSON, onExportCSV, hasSession, onUpload, isUploading }: TopbarProps) {
+  // Voci dropdown: JSON sempre presente; CSV solo quando il parent dichiara
+  // un handler. Stesso pattern di feature flag di altre dropdown del progetto.
+  const exportItems: ExportMenuItem[] = [
+    { label: 'Esporta JSON', onClick: onExportJSON },
+  ];
+  if (onExportCSV) {
+    exportItems.push({ label: 'Esporta CSV', onClick: onExportCSV });
+  }
+
   return (
     <header className="sticky top-0 z-40 h-14 bg-bg/85 backdrop-blur border-b border-border flex items-center px-6 lg:px-12">
       <div className="flex-1 flex items-center gap-3 min-w-0">
@@ -809,12 +838,23 @@ function Topbar({ viewLabel, onDownload, onUpload, isUploading }: TopbarProps) {
       </div>
       <div className="flex items-center gap-2 shrink-0">
         <button
-          onClick={onDownload}
-          className="text-eyebrow uppercase tracking-eyebrow text-ink-2 hover:text-gold border border-border hover:border-gold rounded-md px-3 py-2 transition-colors duration-220 ease-varea"
+          onClick={onExportPDF}
+          disabled={!hasSession}
+          className={`text-eyebrow uppercase tracking-eyebrow border rounded-md px-3 py-2 transition-colors duration-220 ease-varea ${
+            hasSession
+              ? 'border-gold text-gold hover:bg-gold hover:text-[#0a1428] cursor-pointer'
+              : 'border-border text-ink-muted opacity-50 cursor-not-allowed'
+          }`}
+          title={hasSession ? 'Esporta un report PDF della finestra temporale selezionata' : 'Carica una sessione per abilitare l\'export PDF'}
         >
-          Esporta JSON
+          Esporta PDF
         </button>
-        <label className="text-eyebrow uppercase tracking-eyebrow bg-ink text-bg hover:bg-gold rounded-md px-3 py-2 cursor-pointer transition-colors duration-220 ease-varea">
+        <ExportMenu items={exportItems} disabled={!hasSession} />
+        <label
+          className={`text-eyebrow uppercase tracking-eyebrow bg-gold text-[#0a1428] hover:bg-gold/85 rounded-md px-4 py-2 cursor-pointer transition-colors duration-220 ease-varea font-semibold ${
+            isUploading ? 'opacity-70 cursor-wait' : ''
+          }`}
+        >
           {isUploading ? 'Caricamento…' : '+ Carica .FIT'}
           <input
             type="file"
@@ -830,6 +870,82 @@ function Topbar({ viewLabel, onDownload, onUpload, isUploading }: TopbarProps) {
         </label>
       </div>
     </header>
+  );
+}
+
+interface ExportMenuItem {
+  label: string;
+  onClick: () => void;
+}
+
+interface ExportMenuProps {
+  items: ExportMenuItem[];
+  disabled: boolean;
+}
+
+// Dropdown export consolidato. Click-outside via mousedown listener montato
+// solo quando il menu e' aperto (no listener fantasma quando chiuso). Esc
+// chiude. Disabilitato senza sessioni caricate: stesso visual treatment
+// del bottone PDF disabilitato per coerenza.
+function ExportMenu({ items, disabled }: ExportMenuProps) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onMouseDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', onMouseDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onMouseDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  // Niente "force-close" via setState-in-effect quando disabled=true:
+  // basta gateare il pannello con `open && !disabled` qui sotto. Se la
+  // sessione viene rimossa col menu aperto, il pannello sparisce ed e'
+  // aria-hidden; alla ri-abilitazione torna visibile (inert), ma e' un
+  // edge case raro (richiede un disabled→enabled mentre `open=true`).
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => { if (!disabled) setOpen(v => !v); }}
+        disabled={disabled}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className={`text-eyebrow uppercase tracking-eyebrow border rounded-md px-3 py-2 transition-colors duration-220 ease-varea flex items-center gap-1.5 ${
+          disabled
+            ? 'border-border text-ink-muted opacity-50 cursor-not-allowed'
+            : 'border-border text-ink-2 hover:text-gold hover:border-gold cursor-pointer'
+        }`}
+      >
+        Esporta
+        <svg className={`w-3 h-3 transform transition-transform duration-220 ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+      {open && !disabled && (
+        <div role="menu" className="absolute top-full right-0 mt-1 min-w-[160px] bg-surface-1 border border-border rounded-md shadow-card-md z-50 overflow-hidden">
+          {items.map((item, i) => (
+            <button
+              key={i}
+              role="menuitem"
+              onClick={() => { item.onClick(); setOpen(false); }}
+              className="w-full text-left px-4 py-2 text-eyebrow uppercase tracking-eyebrow text-ink-2 hover:bg-surface-2 hover:text-gold transition-colors duration-220"
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

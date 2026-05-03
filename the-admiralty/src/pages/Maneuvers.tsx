@@ -1,4 +1,5 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
+import type { MutableRefObject } from 'react';
 import ManeuverSpeedChart from '../components/charts/ManeuverSpeedChart';
 import FlyThresholdControl from '../components/FlyThresholdControl';
 import type { Maneuver, HighResPoint } from '../types/telemetry';
@@ -21,7 +22,32 @@ interface Props {
   // cambio in una vista si riflette nell'altra. Default = DEFAULT_FLY_THRESHOLD.
   flyThreshold: number;
   onFlyThresholdChange: (v: number) => void;
+  // Quando la Topbar deve esporre l'export CSV nel suo dropdown, Dashboard
+  // passa un ref. Maneuvers vi registra l'handler corrente (chiuso su
+  // filteredManeuvers + flyThreshold) e lo annulla allo smount, cosi' la
+  // Topbar non puo' invocare un export stantio quando l'utente lascia la
+  // vista. Pattern alternativo (lifting state up) richiederebbe spostare
+  // tutto il modello di filtri in Dashboard: piu' ortogonale ma piu' churn.
+  csvExportRef?: MutableRefObject<(() => void) | null>;
 }
+
+// Hoistata fuori dal componente: pura, nessuna closure su state. In scope
+// modulo cosi' useCallback non deve elencarla nelle deps (e quindi non si
+// ricrea ad ogni render perdendo la stabilita' richiesta dal csvExportRef).
+const safeTime = (ts: string | undefined): string => {
+  if (!ts) return '--:--:--';
+  try {
+    const ms = parseBackendTimestamp(ts);
+    if (isNaN(ms)) return '--:--:--';
+    const d = new Date(ms);
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    const ss = String(d.getSeconds()).padStart(2, '0');
+    return `${hh}:${mm}:${ss}`;
+  } catch {
+    return '--:--:--';
+  }
+};
 
 // Manovra arricchita con identita' atleta. ID progressivi assegnati DOPO il
 // merge cronologico cosi' #4810 e' sempre la decima in ordine di tempo.
@@ -37,7 +63,7 @@ type ManeuverRow = Maneuver & {
 const ROWS_PER_PAGE = 50;
 const PAGINATION_THRESHOLD = 500;
 
-export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange }: Props) {
+export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange, csvExportRef }: Props) {
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<'ALL' | 'Virata' | 'Strambata'>('ALL');
   const [resultFilter, setResultFilter] = useState<'ALL' | 'FLY' | 'TOUCH'>('ALL');
@@ -49,25 +75,6 @@ export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange
   const [page, setPage] = useState(1);
 
   const isMulti = sessions.length > 1;
-
-  // Timestamp dal backend sono tz-aware UTC (`+00:00`); parseBackendTimestamp
-  // riconosce sia `Z` sia l'offset esplicito. getHours/Minutes/Seconds
-  // ritornano nel fuso del browser (=fuso di regata quando l'utente rivede
-  // dal proprio device).
-  const safeTime = (ts: string | undefined) => {
-    if (!ts) return '--:--:--';
-    try {
-      const ms = parseBackendTimestamp(ts);
-      if (isNaN(ms)) return '--:--:--';
-      const d = new Date(ms);
-      const hh = String(d.getHours()).padStart(2, '0');
-      const mm = String(d.getMinutes()).padStart(2, '0');
-      const ss = String(d.getSeconds()).padStart(2, '0');
-      return `${hh}:${mm}:${ss}`;
-    } catch {
-      return '--:--:--';
-    }
-  };
 
   const sessionById = useMemo(() => {
     const m = new Map<string, ManeuversSession>();
@@ -149,7 +156,7 @@ export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange
     setAthleteFilter('ALL');
   };
 
-  const handleExportCSV = () => {
+  const handleExportCSV = useCallback(() => {
     // Escape RFC4180: virgolette, virgole e newline obbligano il quoting
     // del campo. L'athleteLabel e' rinominabile dall'utente — senza escape
     // un nome con la virgola spaccava in due colonne.
@@ -188,7 +195,19 @@ export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange
     link.download = 'registro_manovre_filtrato.csv';
     link.click();
     URL.revokeObjectURL(url);
-  };
+  }, [filteredManeuvers, flyThreshold]);
+
+  // Registra l'handler nel ref della Topbar finche' la vista Manovre e'
+  // montata. Allo smount/cambio vista la cleanup mette current=null cosi'
+  // un click sul dropdown da un'altra vista non invocherebbe nulla (anche
+  // se la Topbar oggi non espone il CSV item fuori da Manovre).
+  useEffect(() => {
+    if (!csvExportRef) return;
+    csvExportRef.current = handleExportCSV;
+    return () => {
+      csvExportRef.current = null;
+    };
+  }, [csvExportRef, handleExportCSV]);
 
   // Header griglia — riusato da leg grouping e modalita' paginata.
   const headerRow = (
@@ -409,14 +428,6 @@ export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange
             <FlyThresholdControl value={flyThreshold} onChange={onFlyThresholdChange} />
 
           </div>
-
-          <button
-            onClick={handleExportCSV}
-            className="bg-ink text-bg text-eyebrow uppercase tracking-eyebrow px-5 py-2.5 rounded-md flex items-center gap-2 hover:bg-gold transition-colors duration-220 ease-varea whitespace-nowrap"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-            Esporta CSV
-          </button>
         </div>
 
         {filteredManeuvers.length === 0 ? (
