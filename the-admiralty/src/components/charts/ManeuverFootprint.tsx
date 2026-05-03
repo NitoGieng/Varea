@@ -1,9 +1,10 @@
 import React, { useState, useMemo } from 'react';
 import ManeuverSpeedChart from './ManeuverSpeedChart';
 import FlyThresholdControl from '../FlyThresholdControl';
-import type { Maneuver, TrackPoint, HighResPoint } from '../../types/telemetry';
+import type { Maneuver, TrackPoint, HighResPoint, TwdTimelinePoint } from '../../types/telemetry';
 import { parseBackendTimestamp } from '../../utils/time';
 import { getFoilingStatus } from '../../utils/foiling';
+import { interpolateTwd } from '../../utils/wind';
 
 // Una "lab session": tutto cio' che serve al footprint per un atleta.
 // trackData (0.2Hz) per il disegno geometrico, highResTrack (1Hz) per il
@@ -15,9 +16,15 @@ export interface LabSession {
   maneuvers: Maneuver[];
   trackData: TrackPoint[];
   highResTrack: HighResPoint[];
-  // TWD media della sessione in gradi geografici (0=N). Serve a
-  // disegnare gli indicatori del vento sopra la mappa del footprint.
+  // TWD media della sessione in gradi geografici (0=N). Fallback per
+  // disegnare gli indicatori del vento quando la timeline oraria non e'
+  // disponibile (Stormglass off, vento stimato dal GPS).
   twd?: number;
+  // Timeline TWD oraria (Stormglass). Se presente la freccia del vento
+  // viene interpolata all'istante della manovra invece di usare la
+  // media globale: utile su sessioni multi-orarie con rotazione del
+  // vento (la mattinata 5 nodi da NE diventa pomeriggio 12 nodi da E).
+  twdTimeline?: TwdTimelinePoint[] | null;
 }
 
 interface ManeuverFootprintProps {
@@ -193,7 +200,15 @@ export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresho
     // - Direzione del flusso = TWD + 180.
     // - In SVG, rotate(N) e' orario rispetto a Y_svg+. Quindi:
     //   angolo della freccia = (TWD + 180 - entryCog) % 360.
-    const twd = activeSession?.twd;
+    //
+    // Quando disponibile la timeline oraria interpoliamo all'istante
+    // della manovra (coerente col tag andatura del backend); altrimenti
+    // fallback alla TWD media della sessione.
+    const maneuverMs = activeManeuver.timestamp ? parseBackendTimestamp(activeManeuver.timestamp) : NaN;
+    const twdInterp = (!isNaN(maneuverMs) && activeSession?.twdTimeline)
+      ? interpolateTwd(activeSession.twdTimeline, maneuverMs)
+      : null;
+    const twd = twdInterp ?? activeSession?.twd;
     const windAngleDeg = (typeof twd === 'number' && Number.isFinite(twd))
       ? (((twd + 180 - entryCog) % 360) + 360) % 360
       : null;

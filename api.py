@@ -202,6 +202,19 @@ async def analyze_fit_file(file: UploadFile = File(...)):
 
         api_twd_display = api_twd_list[0]['twd'] if api_twd_list else None
 
+        # Timeline TWD oraria: serve al frontend per (a) il mini-grafico TWD vs
+        # tempo nella panoramica, (b) la freccia del vento nel Lab interpolata
+        # all'istante della manovra invece di usare la media globale, (c) la
+        # rotazione del vento nel report PDF. Stormglass restituisce 1 punto/h:
+        # il frontend replica l'unwrap+lerp di _build_dynamic_twd via utils/wind.ts
+        # per coerenza con i tag manovre lato backend. None se Stormglass off.
+        twd_timeline = None
+        if api_twd_list:
+            twd_timeline = [
+                {"timestamp": str(e['time']), "twd_deg": float(e['twd'])}
+                for e in api_twd_list
+            ]
+
         report = {
             "session_info": {
                 "file_name": file.filename,
@@ -214,7 +227,8 @@ async def analyze_fit_file(file: UploadFile = File(...)):
             "environment": {
                 "api_twd_deg": api_twd_display,
                 "computed_twd_deg": float(global_computed_twd),
-                "is_estimated": api_twd_list is None
+                "is_estimated": api_twd_list is None,
+                "twd_timeline": twd_timeline
             },
             "track_data": track_data,
             "high_res_track": high_res_track,

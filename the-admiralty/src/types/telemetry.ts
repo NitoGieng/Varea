@@ -42,10 +42,21 @@ export interface SessionInfo {
   sog_avg_kts: number;
 }
 
+// Singolo campione orario della curva del vento (Stormglass).
+export interface TwdTimelinePoint {
+  timestamp: string;
+  twd_deg: number;
+}
+
 export interface EnvironmentInfo {
   api_twd_deg: number | null;
   computed_twd_deg: number;
   is_estimated: boolean;
+  // Timeline TWD oraria da Stormglass. null se la TWD e' stimata dal GPS
+  // (in quel caso il backend non ha campioni temporizzati da esporre).
+  // Quando presente contiene >= 1 punto; con 1 solo punto il vento e'
+  // considerato costante e non si disegna lo sparkline.
+  twd_timeline?: TwdTimelinePoint[] | null;
 }
 
 export interface AnalyzeResponse {

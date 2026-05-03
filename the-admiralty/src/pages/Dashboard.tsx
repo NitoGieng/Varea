@@ -9,6 +9,7 @@ import { assignColor } from '../data/palette';
 import SessionsBar from '../components/SessionsBar';
 import Sidebar, { type View } from '../components/Sidebar';
 import ExportReportModal, { type ExportConfig } from '../components/ExportReportModal';
+import TwdSparkline from '../components/charts/TwdSparkline';
 import { parseBackendTimestamp } from '../utils/time';
 import { DEFAULT_FLY_THRESHOLD } from '../utils/foiling';
 import { generateSessionReport } from '../utils/pdfExport';
@@ -176,6 +177,8 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
         highResTrack,
         maneuvers,
         twd: s.environment?.computed_twd_deg,
+        twdTimeline: s.environment?.twd_timeline ?? null,
+        environment: s.environment,
       };
     });
   }, [sessions, debouncedRange]);
@@ -226,6 +229,7 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
       trackData: s.trackData,
       highResTrack: s.highResTrack,
       twd: s.twd,
+      twdTimeline: s.twdTimeline,
     }));
   }, [visibleFilteredSessions]);
 
@@ -590,6 +594,23 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
                       {durationH}h {String(durationM).padStart(2, '0')}m
                     </span>
                   </div>
+                  {/* Sparkline TWD oraria: visibile solo con timeline >=2 punti
+                      (sessioni multi-orarie con dati Stormglass). La banda
+                      gold chiara evidenzia la finestra del filtro temporale
+                      Dashboard cosi' l'allenatore vede a quale momento del
+                      giorno si riferiscono i numeri della panoramica. */}
+                  {environment.twd_timeline && environment.twd_timeline.length >= 2 && (
+                    <div className="mt-3 flex flex-col items-start md:items-end gap-1">
+                      <TwdSparkline
+                        timeline={environment.twd_timeline}
+                        highlightStartMs={debouncedRange?.startMs}
+                        highlightEndMs={debouncedRange?.endMs}
+                      />
+                      <span className="text-caption text-ink-muted">
+                        Rotazione vento — sessione
+                      </span>
+                    </div>
+                  )}
                 </div>
               </header>
 
