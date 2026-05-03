@@ -48,7 +48,12 @@ const BOAT_GOLD = '#c9a169';   // gold dark
 
 export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresholdChange }: ManeuverFootprintProps) {
   const [mode, setMode] = useState<'FLY' | 'TOUCH'>('FLY');
-  const [selectedIndex, setSelectedIndex] = useState(0);
+  // Selezione per chiave (timestamp) anziche' indice: cambiare filtro
+  // FLY/TOUCH o soglia ricostruisce sortedManeuvers e quindi gli indici
+  // saltano. La chiave persiste finche' la manovra resta nella lista
+  // filtrata, evitando di "saltare" su una manovra diversa solo perche'
+  // l'ordine e' cambiato.
+  const [selectedManeuverKey, setSelectedManeuverKey] = useState<string | null>(null);
   const [hoveredTime, setHoveredTime] = useState<number | null>(null);
   const [selectedAthleteId, setSelectedAthleteId] = useState<string | null>(null);
 
@@ -73,8 +78,32 @@ export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresho
       .sort((a, b) => mode === 'FLY' ? Number(b.sog_min) - Number(a.sog_min) : Number(a.sog_min) - Number(b.sog_min));
   }, [activeSession, mode, flyThreshold]);
 
-  React.useEffect(() => { setSelectedIndex(0); }, [mode, activeSession?.id]);
-  React.useEffect(() => { setHoveredTime(null); }, [selectedIndex, mode, activeSession?.id]);
+  // Auto-selezione: la chiave persiste fra cambi di filtro/soglia/atleta.
+  // Quando la manovra selezionata sparisce dalla lista corrente (es. la
+  // soglia la sposta da FLY a TOUCH, o cambio sessione) cade sulla prima
+  // della nuova lista, cosi' il pannello di dettaglio non resta vuoto.
+  React.useEffect(() => {
+    if (sortedManeuvers.length === 0) {
+      if (selectedManeuverKey !== null) setSelectedManeuverKey(null);
+      return;
+    }
+    const stillPresent = selectedManeuverKey != null
+      && sortedManeuvers.some(m => m.timestamp === selectedManeuverKey);
+    if (!stillPresent) {
+      setSelectedManeuverKey(sortedManeuvers[0].timestamp ?? null);
+    }
+  }, [sortedManeuvers, selectedManeuverKey]);
+
+  // Indice derivato dalla chiave. Default 0 quando la chiave non si trova
+  // (caso transitorio: l'effetto sopra riallinea al prossimo render); cosi'
+  // la vista non sfarfalla mostrando un placeholder vuoto.
+  const selectedIndex = useMemo(() => {
+    if (selectedManeuverKey == null) return 0;
+    const idx = sortedManeuvers.findIndex(m => m.timestamp === selectedManeuverKey);
+    return idx >= 0 ? idx : 0;
+  }, [sortedManeuvers, selectedManeuverKey]);
+
+  React.useEffect(() => { setHoveredTime(null); }, [selectedManeuverKey, mode, activeSession?.id]);
 
   const activeManeuver = sortedManeuvers[selectedIndex];
   const activeStatus = activeManeuver ? getFoilingStatus(Number(activeManeuver.sog_min) || 0, flyThreshold) : null;
@@ -341,19 +370,38 @@ export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresho
             sortedManeuvers.map((m, i) => {
               const status = getFoilingStatus(Number(m.sog_min) || 0, flyThreshold);
               const isSelected = selectedIndex === i;
+              // Stato selected: tre segnali ridondanti per non lasciare
+              // ambiguita' su quale card corrisponda al pannello a destra:
+              // (1) bordo gold sx 3px — il piu' leggibile in lista densa,
+              // (2) sfondo bg-surface-2 (vs surface-1 base / surface-2/60
+              //     in hover) per stacco netto, (3) chevron a destra che
+              //     "punta" al pannello di dettaglio. Le label metriche
+              //     passano da muted a piene per finire di chiudere il gap.
               return (
                 <button
-                  key={i}
-                  onClick={() => setSelectedIndex(i)}
-                  className={`w-full p-5 text-left transition-colors duration-220 relative ${
-                    isSelected ? 'bg-surface-2' : 'hover:bg-surface-2/60'
+                  key={m.timestamp || `idx-${i}`}
+                  onClick={() => setSelectedManeuverKey(m.timestamp ?? null)}
+                  aria-pressed={isSelected}
+                  className={`w-full p-5 pr-9 text-left transition-colors duration-150 relative ${
+                    isSelected
+                      ? 'bg-surface-2 cursor-default'
+                      : 'cursor-pointer hover:bg-surface-2/60'
                   }`}
                 >
                   {isSelected && (
-                    <div
-                      className="absolute left-0 top-0 w-0.5 h-full"
-                      style={{ backgroundColor: renderData?.color }}
-                    />
+                    <>
+                      <div className="absolute left-0 top-0 w-[3px] h-full bg-gold" />
+                      <svg
+                        className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gold pointer-events-none"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.5"
+                        viewBox="0 0 24 24"
+                        aria-hidden
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                      </svg>
+                    </>
                   )}
 
                   <div className="flex justify-between items-start mb-3">
@@ -367,22 +415,22 @@ export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresho
 
                   <div className="grid grid-cols-2 gap-2 mb-3">
                     <div className="bg-bg border border-border rounded-md p-2 text-center">
-                      <div className="eyebrow mb-0.5">Vel min</div>
+                      <div className={`eyebrow mb-0.5 ${isSelected ? 'text-ink' : ''}`}>Vel min</div>
                       <div className={`text-lg font-mono tabular ${status.color}`}>
                         {(Number(m.sog_min) || 0).toFixed(1)}
-                        <span className="text-caption text-ink-muted ml-1">kts</span>
+                        <span className={`text-caption ml-1 ${isSelected ? 'text-ink-2' : 'text-ink-muted'}`}>kts</span>
                       </div>
                     </div>
                     <div className="bg-bg border border-border rounded-md p-2 text-center">
-                      <div className="eyebrow mb-0.5">Δ V</div>
+                      <div className={`eyebrow mb-0.5 ${isSelected ? 'text-ink' : ''}`}>Δ V</div>
                       <div className={`text-lg font-mono tabular ${(Number(m.delta_v) || 0) >= 0 ? 'text-sage' : 'text-amber'}`}>
                         {(Number(m.delta_v) || 0) >= 0 ? '+' : ''}{(Number(m.delta_v) || 0).toFixed(1)}
-                        <span className="text-caption text-ink-muted ml-1">kts</span>
+                        <span className={`text-caption ml-1 ${isSelected ? 'text-ink-2' : 'text-ink-muted'}`}>kts</span>
                       </div>
                     </div>
                   </div>
 
-                  <div className="text-caption text-ink-muted font-mono tabular flex items-center justify-between">
+                  <div className={`text-caption font-mono tabular flex items-center justify-between ${isSelected ? 'text-ink-2' : 'text-ink-muted'}`}>
                     <span>{formatTime(m.timestamp)}</span>
                     {m.leg_distance_nm !== undefined && (
                       <span className="text-gold bg-gold/10 px-1.5 py-0.5 rounded-sm border border-gold/20">
@@ -398,6 +446,29 @@ export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresho
 
         {/* Colonna destra: vasca XY + grafico SOG */}
         <div className="flex-1 flex flex-col overflow-hidden">
+
+          {/* Breadcrumb manovra in analisi: tipo + orario in evidenza
+              cosi' il pannello ha un titolo esplicito e l'utente puo'
+              fare cross-reference con la card selezionata in lista
+              (orario in font-mono gold per ancorare visivamente). */}
+          {activeManeuver && (
+            <div className="px-6 py-2.5 border-b border-border bg-surface-1 shrink-0 flex items-baseline gap-3 flex-wrap">
+              <span className="text-eyebrow uppercase tracking-eyebrow text-ink-muted">
+                Manovra
+              </span>
+              <span className="font-serif italic text-base text-ink leading-none">
+                {activeManeuver.type}
+              </span>
+              <span className="font-mono tabular text-body text-gold leading-none">
+                {formatTime(activeManeuver.timestamp)}
+              </span>
+              {activeStatus && (
+                <span className={`text-[9px] font-medium uppercase tracking-eyebrow px-2 py-0.5 rounded-sm border ${activeStatus.color} ${activeStatus.bg} ${activeStatus.border}`}>
+                  {activeStatus.label}
+                </span>
+              )}
+            </div>
+          )}
 
           {/* La vasca scura — sempre dark, e' il "mare" indipendente dal tema */}
           <div className="flex-1 relative bg-[#050d1a] overflow-hidden flex items-center justify-center">
