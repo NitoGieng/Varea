@@ -805,12 +805,11 @@ const VIEW_LABELS: Record<View, string> = {
 
 interface TopbarProps {
   viewLabel: string;
-  // Tre azioni di export con gerarchia visiva esplicita: PDF (secondario,
-  // outline gold), JSON+CSV consolidati nel dropdown "Esporta" (terziario),
-  // upload "Carica .FIT" come azione primaria (filled gold). PDF e dropdown
-  // sono disabilitati finche' non c'e' una sessione caricata: nulla da
-  // esportare. CSV passato solo dalla vista Manovre, dove i filtri locali
-  // definiscono il dataset.
+  // Due azioni: dropdown "Esporta" (secondario, bordo gold) che consolida
+  // PDF + JSON + CSV, e "+ Carica .FIT" come primario (filled gold). Il
+  // dropdown e' disabilitato finche' non c'e' una sessione caricata: tutte
+  // le voci richiedono dati. CSV e' passato solo dalla vista Manovre dove
+  // i filtri locali definiscono il dataset esportato.
   onExportPDF: () => void;
   onExportJSON: () => void;
   onExportCSV?: () => void;
@@ -820,9 +819,12 @@ interface TopbarProps {
 }
 
 function Topbar({ viewLabel, onExportPDF, onExportJSON, onExportCSV, hasSession, onUpload, isUploading }: TopbarProps) {
-  // Voci dropdown: JSON sempre presente; CSV solo quando il parent dichiara
-  // un handler. Stesso pattern di feature flag di altre dropdown del progetto.
+  // Ordine voci dropdown: PDF in cima (formato narrativo, target principale
+  // per l'allenatore), JSON sotto (dump strutturato per analisi esterna),
+  // CSV in coda e solo nella vista Manovre dove i filtri locali definiscono
+  // il dataset.
   const exportItems: ExportMenuItem[] = [
+    { label: 'Esporta PDF', onClick: onExportPDF },
     { label: 'Esporta JSON', onClick: onExportJSON },
   ];
   if (onExportCSV) {
@@ -837,18 +839,6 @@ function Topbar({ viewLabel, onExportPDF, onExportJSON, onExportCSV, hasSession,
         <span className="font-serif italic text-base text-ink truncate">{viewLabel}</span>
       </div>
       <div className="flex items-center gap-2 shrink-0">
-        <button
-          onClick={onExportPDF}
-          disabled={!hasSession}
-          className={`text-eyebrow uppercase tracking-eyebrow border rounded-md px-3 py-2 transition-colors duration-220 ease-varea ${
-            hasSession
-              ? 'border-gold text-gold hover:bg-gold hover:text-[#0a1428] cursor-pointer'
-              : 'border-border text-ink-muted opacity-50 cursor-not-allowed'
-          }`}
-          title={hasSession ? 'Esporta un report PDF della finestra temporale selezionata' : 'Carica una sessione per abilitare l\'export PDF'}
-        >
-          Esporta PDF
-        </button>
         <ExportMenu items={exportItems} disabled={!hasSession} />
         <label
           className={`text-eyebrow uppercase tracking-eyebrow bg-gold text-[#0a1428] hover:bg-gold/85 rounded-md px-4 py-2 cursor-pointer transition-colors duration-220 ease-varea font-semibold ${
@@ -885,8 +875,8 @@ interface ExportMenuProps {
 
 // Dropdown export consolidato. Click-outside via mousedown listener montato
 // solo quando il menu e' aperto (no listener fantasma quando chiuso). Esc
-// chiude. Disabilitato senza sessioni caricate: stesso visual treatment
-// del bottone PDF disabilitato per coerenza.
+// chiude. Bordo gold per dare peso di azione secondaria (consolida PDF +
+// JSON + CSV); disabilitato senza sessioni caricate.
 function ExportMenu({ items, disabled }: ExportMenuProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -923,7 +913,7 @@ function ExportMenu({ items, disabled }: ExportMenuProps) {
         className={`text-eyebrow uppercase tracking-eyebrow border rounded-md px-3 py-2 transition-colors duration-220 ease-varea flex items-center gap-1.5 ${
           disabled
             ? 'border-border text-ink-muted opacity-50 cursor-not-allowed'
-            : 'border-border text-ink-2 hover:text-gold hover:border-gold cursor-pointer'
+            : 'border-gold text-gold hover:bg-gold hover:text-[#0a1428] cursor-pointer'
         }`}
       >
         Esporta
