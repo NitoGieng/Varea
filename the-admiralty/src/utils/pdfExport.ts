@@ -16,6 +16,7 @@ import type {
   SessionInfo,
   EnvironmentInfo,
 } from '../types/telemetry';
+import type { CoachNote } from './notes';
 import { parseBackendTimestamp } from './time';
 
 // --- INPUT ---
@@ -37,6 +38,10 @@ export interface PdfExportInput {
   // serve per capire se la finestra selezionata include la partenza.
   sessionStartIsoFull: string;
   fileName: string;
+  // Annotazioni temporali dell'allenatore (gia' filtrate sulla finestra
+  // temporale dal chiamante). Default array vuoto cosi' il chiamante puo'
+  // omettere il campo per sessioni senza note.
+  coachAnnotations?: CoachNote[];
 }
 
 // --- COLORI ---
@@ -365,6 +370,7 @@ export async function generateSessionReport(input: PdfExportInput): Promise<void
     sessionInfo, environment, trackData, highResTrack, maneuvers,
     rangeStartMs, rangeEndMs, athleteName, flyThreshold, coachNotes,
     sessionStartIsoFull, fileName,
+    coachAnnotations = [],
   } = input;
 
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
@@ -609,6 +615,44 @@ export async function generateSessionReport(input: PdfExportInput): Promise<void
     doc.setTextColor(C.inkSoft);
     doc.text(safeText('Tracciato non disponibile: dati di posizione insufficienti.'), marginX, cursorY);
     cursorY += mm(8);
+  }
+
+  // ---------- NOTE ALLENATORE ----------
+  // Annotazioni timestampate inserite dall'allenatore tramite click su
+  // grafico/mappa. Sezione visibile solo quando ci sono note nel periodo,
+  // ordinata cronologicamente (l'array gia' arriva ordinato dal chiamante,
+  // ma riordiniamo difensivamente per non dipendere dall'ordine di input).
+  if (coachAnnotations.length > 0) {
+    cursorY = ensureSpace(doc, cursorY, mm(40), pageH);
+    cursorY = sectionTitle(doc, 'Note allenatore', cursorY, marginX);
+    cursorY = sectionDesc(doc, 'Annotazioni temporali sui momenti chiave del periodo selezionato.', cursorY, marginX, contentW);
+
+    const sortedNotes = [...coachAnnotations].sort((a, b) => a.timestampSec - b.timestampSec);
+    const fullStartMsLocal = parseBackendTimestamp(sessionStartIsoFull);
+    const noteRows = sortedNotes.map((n, i) => {
+      const ms = Number.isFinite(fullStartMsLocal) ? fullStartMsLocal + n.timestampSec * 1000 : NaN;
+      const ts = Number.isFinite(ms) ? fmtClock(ms) : `+${n.timestampSec}s`;
+      return [String(i + 1), ts, n.text];
+    });
+
+    autoTable(doc, {
+      startY: cursorY,
+      head: [['#', 'Orario', 'Annotazione']],
+      body: noteRows.map(row => row.map(safeText)),
+      theme: 'striped',
+      headStyles: { fillColor: C.ink, textColor: C.gold, fontStyle: 'bold', fontSize: 10 },
+      bodyStyles: { fontSize: 10, textColor: C.ink },
+      alternateRowStyles: { fillColor: C.paperAlt },
+      columnStyles: {
+        0: { cellWidth: mm(10), halign: 'center', fontStyle: 'bold', textColor: C.gold },
+        1: { cellWidth: mm(25), fontStyle: 'bold' },
+        2: { cellWidth: contentW - mm(35) },
+      },
+      margin: { left: marginX, right: marginX },
+      styles: { font: 'helvetica' },
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    cursorY = (doc as any).lastAutoTable.finalY + mm(8);
   }
 
   // ---------- ANALISI PARTENZA ----------

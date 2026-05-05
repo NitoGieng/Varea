@@ -5,6 +5,7 @@ import {
 } from 'recharts';
 import type { Maneuver, HighResPoint } from '../../types/telemetry';
 import { parseBackendTimestamp } from '../../utils/time';
+import type { CoachNote } from '../../utils/notes';
 
 interface Props {
   maneuver: Maneuver | undefined | null;
@@ -13,6 +14,24 @@ interface Props {
   // Secondi relativi al cambio mura mentre il mouse muove sul grafico.
   // null quando il cursore esce dall'area.
   onHoverChange?: (relativeSeconds: number | null) => void;
+  // Note allenatore della sessione corrente. Renderizziamo solo quelle che
+  // cadono nella finestra -20s/+40s della manovra (le altre vivono nei
+  // grafici di Panoramica / mappa). Le coordinate del marker e del popup
+  // sono tradotte in secondi relativi al cambio mura.
+  notes?: CoachNote[];
+  numberOf?: (id: string) => number;
+  // Inizio sessione (epoch-ms): serve per tradurre note.timestampSec in
+  // secondi relativi al cambio mura della manovra corrente. Senza questo
+  // valore le note non vengono renderizzate (niente fallback silenziosi:
+  // un grafico senza ancora temporale e' un'incoerenza che vogliamo
+  // notare in dev, non un comportamento "best-effort").
+  sessionStartMs?: number;
+  highlightedNoteId?: string | null;
+  // Click su un'area libera del grafico: il chiamante apre il popup di
+  // nuova nota. timestampSec assoluto (secondi dall'inizio sessione)
+  // pre-calcolato qui dal relativeTime + maneuverMs.
+  onChartClick?: (timestampSec: number, pixelX: number, pixelY: number) => void;
+  onNoteClick?: (note: CoachNote, pixelX: number, pixelY: number) => void;
 }
 
 // Finestra fissa attorno al cambio mura: -20s / +40s (60s totali).
@@ -69,7 +88,22 @@ function CustomTooltip({ active, payload }: AnyProps) {
   );
 }
 
-export default function ManeuverSpeedChart({ maneuver, highResTrack, height = 280, onHoverChange }: Props) {
+// Soglia "vicino a marker": click entro 2s da una nota esistente non apre
+// il popup di nuova nota (lascia che sia il marker a gestire il click).
+const NEAR_MARKER_TOLERANCE_SEC = 2;
+
+export default function ManeuverSpeedChart({
+  maneuver,
+  highResTrack,
+  height = 280,
+  onHoverChange,
+  notes,
+  numberOf,
+  sessionStartMs,
+  highlightedNoteId,
+  onChartClick,
+  onNoteClick,
+}: Props) {
   const { chartData, vMinTime, vInValue, vMinValue, vOutValue, ttrTarget } = useMemo(() => {
     const empty = {
       chartData: [] as Array<{ relativeTime: number; sog: number; cog: number; epoch: number }>,
@@ -116,6 +150,32 @@ export default function ManeuverSpeedChart({ maneuver, highResTrack, height = 28
     };
   }, [maneuver, highResTrack]);
 
+  // Note nella finestra: traslate da timestampSec assoluto a relativeTime
+  // (secondi dal cambio mura). Calcolato solo se abbiamo sessionStartMs e
+  // un timestamp di manovra valido — altrimenti nessuna nota viene
+  // renderizzata (silenziosamente coerente con "no ancora temporale").
+  const notesInWindow = useMemo(() => {
+    if (!notes || notes.length === 0 || !maneuver || sessionStartMs == null) return [];
+    const maneuverMs = parseBackendTimestamp(maneuver.timestamp);
+    if (!Number.isFinite(maneuverMs)) return [];
+    const offsetSec = (maneuverMs - sessionStartMs) / 1000;
+    const out: Array<{ id: string; relTime: number; color?: string }> = [];
+    for (const n of notes) {
+      const rel = n.timestampSec - offsetSec;
+      if (rel >= -PRE_WINDOW_S && rel <= POST_WINDOW_S) {
+        out.push({ id: n.id, relTime: rel, color: n.color });
+      }
+    }
+    return out;
+  }, [notes, maneuver, sessionStartMs]);
+
+  // Mappa id -> nota originale per il callback onNoteClick.
+  const notesById = useMemo(() => {
+    const m = new Map<string, CoachNote>();
+    if (notes) for (const n of notes) m.set(n.id, n);
+    return m;
+  }, [notes]);
+
   if (!chartData.length) {
     return (
       <div className="w-full flex items-center justify-center text-ink-muted text-caption italic" style={{ height }}>
@@ -124,8 +184,24 @@ export default function ManeuverSpeedChart({ maneuver, highResTrack, height = 28
     );
   }
 
+  const handleChartClick = (state: AnyProps) => {
+    if (!onChartClick || !maneuver || sessionStartMs == null) return;
+    const label = state?.activeLabel;
+    if (label == null || isNaN(Number(label))) return;
+    const rel = Number(label);
+    // Lascia gestire al marker quando il click cade vicino a una nota.
+    if (notesInWindow.some(n => Math.abs(n.relTime - rel) <= NEAR_MARKER_TOLERANCE_SEC)) return;
+    const maneuverMs = parseBackendTimestamp(maneuver.timestamp);
+    if (!Number.isFinite(maneuverMs)) return;
+    const timestampSec = Math.round((maneuverMs - sessionStartMs) / 1000 + rel);
+    const coord = state?.activeCoordinate;
+    const px = typeof coord?.x === 'number' ? coord.x : 0;
+    const py = typeof coord?.y === 'number' ? coord.y : 0;
+    onChartClick(timestampSec, px, py);
+  };
+
   return (
-    <div style={{ width: '100%', height }}>
+    <div style={{ width: '100%', height }} className={onChartClick ? 'cursor-crosshair' : ''}>
       <ResponsiveContainer width="100%" height="100%">
         <LineChart
           data={chartData}
@@ -138,6 +214,7 @@ export default function ManeuverSpeedChart({ maneuver, highResTrack, height = 28
             }
           }}
           onMouseLeave={() => onHoverChange?.(null)}
+          onClick={handleChartClick}
         >
           {/* Style 8D — gridlines quasi invisibili */}
           <CartesianGrid strokeDasharray="2 4" vertical={false} stroke={COLOR_GRID} />
@@ -242,6 +319,69 @@ export default function ManeuverSpeedChart({ maneuver, highResTrack, height = 28
             isAnimationActive={false}
             activeDot={{ r: 4, fill: COLOR_MARKER, stroke: COLOR_TOOLTIP_BG, strokeWidth: 2 }}
           />
+
+          {/* Note allenatore nella finestra: linea tratteggiata + cerchio
+              numerato cliccabile in cima al grafico. */}
+          {notesInWindow.map(n => (
+            <ReferenceLine
+              key={`note-line-${n.id}`}
+              x={n.relTime}
+              stroke={n.color ?? COLOR_LINE}
+              strokeWidth={1}
+              strokeDasharray="3 4"
+              ifOverflow="extendDomain"
+            />
+          ))}
+          {notesInWindow.map(n => {
+            const isHi = highlightedNoteId === n.id;
+            const num = numberOf ? numberOf(n.id) : 0;
+            const radius = isHi ? 11 : 9;
+            return (
+              <ReferenceDot
+                key={`note-dot-${n.id}`}
+                x={n.relTime}
+                y={chartData[0]?.sog ?? 0}
+                r={radius}
+                ifOverflow="extendDomain"
+                shape={(props: AnyProps) => {
+                  const cx = Number(props.cx);
+                  if (!Number.isFinite(cx)) return <g />;
+                  const yTop = 18;
+                  const fill = n.color ?? COLOR_LINE;
+                  const original = notesById.get(n.id);
+                  return (
+                    <g
+                      transform={`translate(${cx}, ${yTop})`}
+                      style={{ cursor: 'pointer' }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (onNoteClick && original) onNoteClick(original, cx, yTop);
+                      }}
+                    >
+                      <circle
+                        r={radius}
+                        fill={fill}
+                        stroke={COLOR_TOOLTIP_BG}
+                        strokeWidth={2}
+                        opacity={isHi ? 1 : 0.95}
+                      />
+                      <text
+                        textAnchor="middle"
+                        dominantBaseline="middle"
+                        fill="#0a1428"
+                        fontSize={10}
+                        fontFamily="JetBrains Mono, ui-monospace, monospace"
+                        fontWeight="bold"
+                        pointerEvents="none"
+                      >
+                        {num}
+                      </text>
+                    </g>
+                  );
+                }}
+              />
+            );
+          })}
         </LineChart>
       </ResponsiveContainer>
     </div>

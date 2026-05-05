@@ -1,10 +1,12 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import ManeuverSpeedChart from './ManeuverSpeedChart';
 import FlyThresholdControl from '../FlyThresholdControl';
+import NoteEditPopup from '../NoteEditPopup';
 import type { Maneuver, TrackPoint, HighResPoint, TwdTimelinePoint } from '../../types/telemetry';
 import { parseBackendTimestamp } from '../../utils/time';
 import { getFoilingStatus } from '../../utils/foiling';
 import { interpolateTwd } from '../../utils/wind';
+import { useCoachNotes } from '../../utils/notes';
 
 // Una "lab session": tutto cio' che serve al footprint per un atleta.
 // trackData (0.2Hz) per il disegno geometrico, highResTrack (1Hz) per il
@@ -13,6 +15,14 @@ export interface LabSession {
   id: string;
   label: string;
   color: string;
+  // file_name della sessione: chiave per persistere le note allenatore in
+  // localStorage. Cambiando atleta nel selettore, le note seguono.
+  fileName: string;
+  // Inizio sessione (ISO) non filtrato: serve come ancora temporale per
+  // tradurre note.timestampSec in epoch quando il chart calcola le
+  // posizioni dei marker. Il filtro temporale di Dashboard non sposta
+  // l'origine del riferimento.
+  sessionStartIso: string;
   maneuvers: Maneuver[];
   trackData: TrackPoint[];
   highResTrack: HighResPoint[];
@@ -45,6 +55,17 @@ const EMPTY_HIGH_RES: HighResPoint[] = [];
 const FLY_COLOR = '#7fa885';   // sage
 const TOUCH_COLOR = '#d4a24c'; // amber
 const BOAT_GOLD = '#c9a169';   // gold dark
+
+// Stato del popup nota nel chart laboratorio. x/y sono pixel locali al
+// container del grafico SOG. mode 'create' = nuova nota (testo iniziale
+// vuoto), 'edit' = nota esistente (testo iniziale = nota.text).
+interface NotePopupState {
+  x: number;
+  y: number;
+  timestampSec: number;
+  initialText: string;
+  editingId: string | null;
+}
 
 export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresholdChange }: ManeuverFootprintProps) {
   const [mode, setMode] = useState<'FLY' | 'TOUCH'>('FLY');
@@ -107,6 +128,43 @@ export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresho
 
   const activeManeuver = sortedManeuvers[selectedIndex];
   const activeStatus = activeManeuver ? getFoilingStatus(Number(activeManeuver.sog_min) || 0, flyThreshold) : null;
+
+  // Note allenatore della sessione attiva. La chiave (fileName) cambia
+  // quando l'utente seleziona un altro atleta nel selettore: le note
+  // seguono coerentemente, senza che dovremo ri-attaccare hook qui sopra.
+  const { notes, addNote, updateNote, deleteNote, numberOf } = useCoachNotes(activeSession?.fileName);
+  // Niente optional chaining nel body del useMemo: il compiler React inferisce
+  // come dep `sessionStartIso` (senza ?.), che differisce dalla dep manuale
+  // se usiamo `activeSession?.sessionStartIso` qui dentro. Estraendola fuori
+  // i due match.
+  const sessionStartIso = activeSession?.sessionStartIso ?? '';
+  const sessionStartMs = useMemo(() => {
+    if (!sessionStartIso) return undefined;
+    const ms = parseBackendTimestamp(sessionStartIso);
+    return Number.isFinite(ms) ? ms : undefined;
+  }, [sessionStartIso]);
+
+  const [notePopup, setNotePopup] = useState<NotePopupState | null>(null);
+  // ID flash-evidenziato nell'ultimo gesto utente (nascosto dopo 1.4s):
+  // qui non c'e' un pannello note, ma teniamo lo stato per coerenza con la
+  // UX della Panoramica (e per future estensioni che mostrino una lista).
+  const [highlightedNoteId, setHighlightedNoteId] = useState<string | null>(null);
+  const highlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flashHighlight = (id: string) => {
+    setHighlightedNoteId(id);
+    if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+    highlightTimeoutRef.current = setTimeout(() => setHighlightedNoteId(null), 1400);
+  };
+
+  const formatNoteTimestamp = (timestampSec: number): string => {
+    if (!sessionStartMs) return `+${timestampSec}s`;
+    const ms = sessionStartMs + timestampSec * 1000;
+    const d = new Date(ms);
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    const ss = String(d.getSeconds()).padStart(2, '0');
+    return `${hh}:${mm}:${ss}`;
+  };
 
   const formatTime = (ts: string) => {
     if (!ts) return 'N/D';
@@ -706,7 +764,7 @@ export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresho
           </div>
 
           {/* Grafico SOG istantaneo */}
-          <div className="border-t border-border bg-surface-1 px-6 py-3 shrink-0">
+          <div className="border-t border-border bg-surface-1 px-6 py-3 shrink-0 relative">
             <div className="flex items-baseline justify-between mb-1">
               <h4 className="eyebrow">Velocità istante-per-istante</h4>
               <span className="text-caption text-ink-muted font-mono tabular">−20s / +40s</span>
@@ -716,7 +774,42 @@ export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresho
               highResTrack={highResTrack}
               height={200}
               onHoverChange={setHoveredTime}
+              notes={notes}
+              numberOf={numberOf}
+              sessionStartMs={sessionStartMs}
+              highlightedNoteId={highlightedNoteId}
+              onChartClick={(timestampSec, px, py) => {
+                setNotePopup({ x: px, y: py + 30, timestampSec, initialText: '', editingId: null });
+              }}
+              onNoteClick={(note, px, py) => {
+                setNotePopup({ x: px, y: py + 12, timestampSec: note.timestampSec, initialText: note.text, editingId: note.id });
+                flashHighlight(note.id);
+              }}
             />
+            {notePopup && (
+              <NoteEditPopup
+                x={Math.max(8, Math.min(notePopup.x - 144, 9999))}
+                y={Math.max(8, notePopup.y)}
+                timestampDisplay={formatNoteTimestamp(notePopup.timestampSec)}
+                initialText={notePopup.initialText}
+                isEditing={notePopup.editingId !== null}
+                onSave={(text) => {
+                  if (notePopup.editingId) {
+                    updateNote(notePopup.editingId, text);
+                    flashHighlight(notePopup.editingId);
+                  } else {
+                    const created = addNote(notePopup.timestampSec, text);
+                    flashHighlight(created.id);
+                  }
+                  setNotePopup(null);
+                }}
+                onCancel={() => setNotePopup(null)}
+                onDelete={notePopup.editingId ? () => {
+                  deleteNote(notePopup.editingId!);
+                  setNotePopup(null);
+                } : undefined}
+              />
+            )}
           </div>
 
         </div>
@@ -724,3 +817,4 @@ export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresho
     </div>
   );
 }
+

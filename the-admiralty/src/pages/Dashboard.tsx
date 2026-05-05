@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import type { ReactNode } from 'react';
-import TelemetryMap from '../components/charts/TelemetryMap';
+import TelemetryMap, { type NoteMarker } from '../components/charts/TelemetryMap';
 import Maneuvers from './Maneuvers';
 import StartAnalysis from './StartAnalysis';
 import Lab from './Lab';
@@ -10,9 +10,13 @@ import SessionsBar from '../components/SessionsBar';
 import Sidebar, { type View } from '../components/Sidebar';
 import ExportReportModal, { type ExportConfig } from '../components/ExportReportModal';
 import TwdSparkline from '../components/charts/TwdSparkline';
+import SessionSpeedChart from '../components/charts/SessionSpeedChart';
+import NotesPanel from '../components/NotesPanel';
+import NoteEditPopup from '../components/NoteEditPopup';
 import { parseBackendTimestamp } from '../utils/time';
 import { DEFAULT_FLY_THRESHOLD } from '../utils/foiling';
 import { generateSessionReport } from '../utils/pdfExport';
+import { useCoachNotes, type CoachNote } from '../utils/notes';
 
 interface DashboardProps {
   // File selezionati nella landing: se presenti l'analisi parte al mount.
@@ -133,6 +137,176 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
     return Number.isNaN(ms) ? null : ms;
   }, [primarySession]);
 
+  // ---------- COACH NOTES ----------
+  // Le note vivono per fileName: cambiare sessione attiva ricarica le note
+  // dallo slot localStorage corrispondente. Tutte le viste della Panoramica
+  // (grafico SOG, mappa, pannello sotto) condividono questa stessa lista.
+  const { notes, addNote, updateNote, deleteNote, numberOf } =
+    useCoachNotes(primarySession?.fileName);
+
+  // Stato del popup di nuova/modifica nota nella Panoramica. x/y sono
+  // pixel relativi al container .relative del chiamante (SOG chart o
+  // mappa). editingId distingue create da edit.
+  interface OverviewNotePopup {
+    x: number;
+    y: number;
+    timestampSec: number;
+    initialText: string;
+    editingId: string | null;
+    // Anchor del container: il popup vive in due contenitori diversi
+    // (sopra il grafico vs sopra la mappa) e ognuno ha il proprio
+    // sistema di coordinate relative. Salviamo qui dove deve renderizzare.
+    anchor: 'chart' | 'map';
+  }
+  const [notePopup, setNotePopup] = useState<OverviewNotePopup | null>(null);
+
+  // ID nota evidenziata (flash 1.4s). Cambia quando l'utente clicca una
+  // riga del NotesPanel: il marker corrispondente cresce su grafico e mappa.
+  const [highlightedNoteId, setHighlightedNoteId] = useState<string | null>(null);
+  const highlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flashHighlight = useCallback((id: string) => {
+    setHighlightedNoteId(id);
+    if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+    highlightTimeoutRef.current = setTimeout(() => setHighlightedNoteId(null), 1400);
+  }, []);
+  useEffect(() => {
+    return () => {
+      if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+    };
+  }, []);
+
+  // Formatter del timestamp nota: HH:MM:SS nel fuso del browser. Usato
+  // dal NotesPanel; il popup ne riceve gia' il risultato. Definito qui
+  // perche' dipende da primaryStartMs (epoch dell'inizio sessione).
+  const formatNoteTimestamp = useCallback((timestampSec: number): string => {
+    if (primaryStartMs == null) return `+${timestampSec}s`;
+    const d = new Date(primaryStartMs + timestampSec * 1000);
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    const ss = String(d.getSeconds()).padStart(2, '0');
+    return `${hh}:${mm}:${ss}`;
+  }, [primaryStartMs]);
+
+  // Marker delle note sulla mappa: per ogni nota cerca il highResTrack
+  // point piu' vicino al timestamp e usa la sua lat/lon. Se non c'e'
+  // highResTrack (sessione lunga > 1h), fallback al trackData decimato.
+  const noteMarkers = useMemo<NoteMarker[]>(() => {
+    if (!primarySession || primaryStartMs == null) return [];
+    const tracks = (primarySession.highResTrack && primarySession.highResTrack.length > 0)
+      ? primarySession.highResTrack
+      : (primarySession.trackData ?? []);
+    if (tracks.length === 0) return [];
+    const out: NoteMarker[] = [];
+    for (const n of notes) {
+      const targetMs = primaryStartMs + n.timestampSec * 1000;
+      let bestIdx = -1;
+      let bestDiff = Infinity;
+      for (let i = 0; i < tracks.length; i++) {
+        const ms = parseIsoMs(tracks[i].timestamp);
+        if (!Number.isFinite(ms)) continue;
+        const diff = Math.abs(ms - targetMs);
+        if (diff < bestDiff) { bestDiff = diff; bestIdx = i; }
+      }
+      if (bestIdx < 0) continue;
+      const p = tracks[bestIdx];
+      if (!Number.isFinite(p.lat) || !Number.isFinite(p.lon)) continue;
+      out.push({
+        id: n.id,
+        lat: p.lat,
+        lon: p.lon,
+        number: numberOf(n.id),
+        color: n.color ?? '#c9a169',
+      });
+    }
+    return out;
+  }, [notes, primarySession, primaryStartMs, numberOf]);
+
+  // Ref del container .relative che ospita il SOG chart e il popup ancorato:
+  // serve a convertire i clientX/Y dei click mappa in coordinate locali.
+  const overviewChartContainerRef = useRef<HTMLDivElement>(null);
+  const overviewMapContainerRef = useRef<HTMLDivElement>(null);
+
+  // Handler per il click sull'area del SOG chart (Panoramica): apre il
+  // popup di nuova nota in posizione locale gia' pronta dal grafico.
+  const handleChartClickNote = useCallback((timestampSec: number, pixelX: number, pixelY: number) => {
+    setNotePopup({
+      x: Math.max(8, pixelX - 144),
+      y: pixelY + 30,
+      timestampSec,
+      initialText: '',
+      editingId: null,
+      anchor: 'chart',
+    });
+  }, []);
+
+  // Click su un marker esistente nel SOG chart: avvia la modifica.
+  const handleNoteMarkerClickInChart = useCallback((note: CoachNote, pixelX: number, pixelY: number) => {
+    setNotePopup({
+      x: Math.max(8, pixelX - 144),
+      y: pixelY + 12,
+      timestampSec: note.timestampSec,
+      initialText: note.text,
+      editingId: note.id,
+      anchor: 'chart',
+    });
+  }, []);
+
+  // Click su un punto del tracciato sulla mappa: timestamp ISO viene
+  // convertito a "secondi dall'inizio sessione" e si apre il popup di
+  // nuova nota ancorato al container mappa.
+  const handleMapTrackClick = useCallback((timestampIso: string, clientX: number, clientY: number) => {
+    if (primaryStartMs == null) return;
+    const ms = parseIsoMs(timestampIso);
+    if (!Number.isFinite(ms)) return;
+    const t = Math.round((ms - primaryStartMs) / 1000);
+    const rect = overviewMapContainerRef.current?.getBoundingClientRect();
+    const localX = rect ? clientX - rect.left : clientX;
+    const localY = rect ? clientY - rect.top : clientY;
+    setNotePopup({
+      x: Math.max(8, localX - 144),
+      y: localY + 16,
+      timestampSec: t,
+      initialText: '',
+      editingId: null,
+      anchor: 'map',
+    });
+  }, [primaryStartMs]);
+
+  // Click su un marker numerato sulla mappa: avvia la modifica della nota.
+  const handleMapNoteMarkerClick = useCallback((id: string, clientX: number, clientY: number) => {
+    const n = notes.find(x => x.id === id);
+    if (!n) return;
+    const rect = overviewMapContainerRef.current?.getBoundingClientRect();
+    const localX = rect ? clientX - rect.left : clientX;
+    const localY = rect ? clientY - rect.top : clientY;
+    setNotePopup({
+      x: Math.max(8, localX - 144),
+      y: localY + 16,
+      timestampSec: n.timestampSec,
+      initialText: n.text,
+      editingId: n.id,
+      anchor: 'map',
+    });
+  }, [notes]);
+
+  const handleNotePopupSave = useCallback((text: string) => {
+    if (!notePopup) return;
+    if (notePopup.editingId) {
+      updateNote(notePopup.editingId, text);
+      flashHighlight(notePopup.editingId);
+    } else {
+      const created = addNote(notePopup.timestampSec, text);
+      flashHighlight(created.id);
+    }
+    setNotePopup(null);
+  }, [notePopup, addNote, updateNote, flashHighlight]);
+
+  const handleNotePopupDelete = useCallback(() => {
+    if (!notePopup?.editingId) return;
+    deleteNote(notePopup.editingId);
+    setNotePopup(null);
+  }, [notePopup, deleteNote]);
+
   const segmentMetrics = useMemo(() => {
     if (!telemetryData || !debouncedRange) return null;
     const filterStartEpoch = Math.min(debouncedRange.startMs, debouncedRange.endMs);
@@ -196,6 +370,11 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
         id: s.id,
         label: s.label,
         color: s.color,
+        // fileName + sessionStartIso accompagnano la sessione cosi' Lab/
+        // ManeuverFootprint puo' chiamare useCoachNotes con la chiave
+        // corretta e tradurre note.timestampSec in epoch.
+        fileName: s.fileName,
+        sessionStartIso: s.sessionInfo?.start_time ?? '',
         durationSecs,
         trackData,
         highResTrack,
@@ -219,8 +398,20 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
       };
     });
     const colorMode: 'speed' | 'session' = visibleFilteredSessions.length === 1 ? 'speed' : 'session';
-    return <TelemetryMap layers={layers} colorMode={colorMode} />;
-  }, [visibleFilteredSessions]);
+    // Note allenatore: solo in modalita' speed (single session). I callback
+    // sono passati anche con array vuoto cosi' il click su un punto del
+    // tracciato apre comunque il popup di nuova nota.
+    return (
+      <TelemetryMap
+        layers={layers}
+        colorMode={colorMode}
+        noteMarkers={colorMode === 'speed' ? noteMarkers : undefined}
+        highlightedNoteId={highlightedNoteId}
+        onTrackClick={colorMode === 'speed' ? handleMapTrackClick : undefined}
+        onNoteMarkerClick={colorMode === 'speed' ? handleMapNoteMarkerClick : undefined}
+      />
+    );
+  }, [visibleFilteredSessions, noteMarkers, highlightedNoteId, handleMapTrackClick, handleMapNoteMarkerClick]);
 
   const maneuversSessions = useMemo(() => {
     return visibleFilteredSessions.map(s => ({
@@ -249,6 +440,8 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
       id: s.id,
       label: s.label,
       color: s.color,
+      fileName: s.fileName,
+      sessionStartIso: s.sessionStartIso,
       maneuvers: s.maneuvers,
       trackData: s.trackData,
       highResTrack: s.highResTrack,
@@ -376,6 +569,17 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
     const filteredHighRes = telemetryData.high_res_track.filter(p => inRange(p.timestamp));
     const filteredManeuvers = telemetryData.maneuvers.filter(m => inRange(m.timestamp));
 
+    // Note allenatore filtrate sulla finestra temporale: solo quelle che
+    // cadono dentro l'intervallo selezionato compaiono nel PDF, coerenti
+    // col resto del report.
+    const sessionStartMsForNotes = parseBackendTimestamp(telemetryData.session_info.start_time);
+    const filteredCoachAnnotations = Number.isFinite(sessionStartMsForNotes)
+      ? notes.filter(n => {
+          const ms = sessionStartMsForNotes + n.timestampSec * 1000;
+          return ms >= filterStart && ms <= filterEnd;
+        })
+      : [];
+
     try {
       await generateSessionReport({
         sessionInfo: telemetryData.session_info,
@@ -390,6 +594,7 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
         coachNotes: cfg.coachNotes,
         sessionStartIsoFull: telemetryData.session_info.start_time,
         fileName: telemetryData.session_info.file_name,
+        coachAnnotations: filteredCoachAnnotations,
       });
     } catch (err) {
       console.error('Export PDF fallito:', err);
@@ -737,6 +942,79 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
                 </section>
               )}
 
+              {/* GRAFICO VELOCITA' + NOTE ALLENATORE.
+                  Il chart copre tutta la sessione (non filtrata) cosi'
+                  l'allenatore puo' annotare anche fuori dalla finestra
+                  temporale corrente. Il pannello note resta sincronizzato
+                  con i marker del chart e della mappa. */}
+              {primarySession && primaryStartMs != null && (
+                <section className="mb-10 space-y-6">
+                  <div className="bg-surface-1 border border-border rounded-lg shadow-card overflow-hidden">
+                    <div className="px-6 py-4 border-b border-border flex items-center justify-between">
+                      <h3 className="eyebrow">Velocità — sessione</h3>
+                      <span className="text-caption text-ink-muted italic">
+                        Clicca per aggiungere una nota
+                      </span>
+                    </div>
+                    <div ref={overviewChartContainerRef} className="relative px-4 py-4">
+                      <SessionSpeedChart
+                        track={
+                          (primarySession.highResTrack && primarySession.highResTrack.length > 0)
+                            ? primarySession.highResTrack
+                            : (primarySession.trackData ?? [])
+                        }
+                        sessionStartMs={primaryStartMs}
+                        notes={notes}
+                        numberOf={numberOf}
+                        highlightedNoteId={highlightedNoteId}
+                        height={240}
+                        onChartClick={handleChartClickNote}
+                        onNoteClick={handleNoteMarkerClickInChart}
+                      />
+                      {notePopup && notePopup.anchor === 'chart' && (
+                        <NoteEditPopup
+                          x={notePopup.x}
+                          y={notePopup.y}
+                          timestampDisplay={formatNoteTimestamp(notePopup.timestampSec)}
+                          initialText={notePopup.initialText}
+                          isEditing={notePopup.editingId !== null}
+                          onSave={handleNotePopupSave}
+                          onCancel={() => setNotePopup(null)}
+                          onDelete={notePopup.editingId ? handleNotePopupDelete : undefined}
+                        />
+                      )}
+                    </div>
+                  </div>
+
+                  <NotesPanel
+                    notes={notes}
+                    numberOf={numberOf}
+                    formatTimestamp={formatNoteTimestamp}
+                    onEdit={(n) => {
+                      // Apri il popup di modifica ancorato al chart, nel centro
+                      // approssimativo dell'area di disegno: l'utente arriva
+                      // qui dal pannello, non dal grafico, quindi non abbiamo
+                      // coordinate del click sorgente.
+                      const rect = overviewChartContainerRef.current?.getBoundingClientRect();
+                      const cx = rect ? rect.width / 2 - 144 : 16;
+                      setNotePopup({
+                        x: Math.max(8, cx),
+                        y: 24,
+                        timestampSec: n.timestampSec,
+                        initialText: n.text,
+                        editingId: n.id,
+                        anchor: 'chart',
+                      });
+                      flashHighlight(n.id);
+                    }}
+                    onDelete={(id) => {
+                      deleteNote(id);
+                    }}
+                    onHighlight={flashHighlight}
+                  />
+                </section>
+              )}
+
               {/* MAPPA */}
               <section className="bg-surface-1 border border-border rounded-lg shadow-card overflow-hidden">
                 <div className="px-6 py-4 border-b border-border flex items-center justify-between">
@@ -744,8 +1022,20 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
                     Tracciato GPS{isFiltered ? ' · segmento filtrato' : ''}
                   </h3>
                 </div>
-                <div className="relative h-[600px] w-full bg-bg">
+                <div ref={overviewMapContainerRef} className="relative h-[600px] w-full bg-bg">
                   {MapMemoized}
+                  {notePopup && notePopup.anchor === 'map' && (
+                    <NoteEditPopup
+                      x={notePopup.x}
+                      y={notePopup.y}
+                      timestampDisplay={formatNoteTimestamp(notePopup.timestampSec)}
+                      initialText={notePopup.initialText}
+                      isEditing={notePopup.editingId !== null}
+                      onSave={handleNotePopupSave}
+                      onCancel={() => setNotePopup(null)}
+                      onDelete={notePopup.editingId ? handleNotePopupDelete : undefined}
+                    />
+                  )}
                 </div>
               </section>
             </div>
