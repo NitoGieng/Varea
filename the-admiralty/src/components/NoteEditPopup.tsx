@@ -1,11 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 
 interface Props {
-  // Posizione assoluta in pixel rispetto al container relative del chiamante.
-  // Il chiamante e' responsabile del clamp dentro i bounds del container —
-  // qui ci limitiamo a settare left/top.
-  x: number;
-  y: number;
+  // Punto di click in pixel relativi al container .relative del chiamante.
+  // Il popup si posiziona da solo: il chiamante NON deve preconvertire il
+  // click in coordinate "popup top-left" — fornisce la pura ancora del click.
+  anchorX: number;
+  anchorY: number;
   // Stringa orario gia' formattata (es. "00:12:34" o "14:38:28"). La
   // formattazione vive nel chiamante perche' dipende dall'inizio della
   // sessione che il popup non possiede.
@@ -20,14 +21,30 @@ interface Props {
   onDelete?: () => void;
 }
 
+// Margine fra popup e punto di click (gap visibile fra cursore e popup).
+const ANCHOR_GAP_PX = 12;
+// Margine minimo fra popup e bordi del viewport.
+const VIEWPORT_EDGE_PX = 8;
+
 // Popup inline per creare/modificare una nota allenatore. Posizionato in
 // assoluto sopra grafico o mappa. Auto-focus del textarea, Esc = annulla,
 // Cmd/Ctrl+Enter = salva. Salvare un testo vuoto in modalita' modifica
 // equivale a eliminare (coerente con l'aspettativa "ho cancellato tutto");
 // in modalita' creazione equivale ad annullare per non lasciare residui.
+//
+// PLACEMENT VIEWPORT-AWARE — usa un'iterazione due-pass via useLayoutEffect:
+//   1° render off-screen (visibility:hidden) per misurare le dimensioni reali,
+//   2° render alla posizione calcolata. La regola di placement:
+//     - default SOPRA il click (= il pulsante Salva resta sempre lontano dal
+//       bordo basso del viewport, che e' il caso piu' comune di tagliato),
+//     - SOTTO se sopra non c'e' spazio,
+//     - position:fixed centrato se nessuna delle due fitta (grafico molto
+//       piccolo o anchor su un viewport ridotto).
+//   L'asse orizzontale clampa il popup dentro il viewport con margine fisso,
+//   coprendo gli edge case "click vicino al bordo destro" e specchio.
 export default function NoteEditPopup({
-  x,
-  y,
+  anchorX,
+  anchorY,
   timestampDisplay,
   initialText,
   isEditing,
@@ -37,6 +54,17 @@ export default function NoteEditPopup({
 }: Props) {
   const [text, setText] = useState(initialText);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  // Style finale del wrapper. Inizialmente off-screen + invisible: il primo
+  // paint avviene fuori dal viewport, l'utente vede solo il 2° paint con la
+  // posizione calcolata. Niente flash della posizione provvisoria.
+  const [placedStyle, setPlacedStyle] = useState<CSSProperties>({
+    position: 'absolute',
+    left: -9999,
+    top: -9999,
+    visibility: 'hidden',
+  });
 
   useEffect(() => {
     const ta = textareaRef.current;
@@ -46,6 +74,94 @@ export default function NoteEditPopup({
     // senza dover cliccare nel testo gia' presente.
     ta.setSelectionRange(ta.value.length, ta.value.length);
   }, []);
+
+  useLayoutEffect(() => {
+    const computePlacement = () => {
+      const el = wrapperRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const popupW = rect.width;
+      const popupH = rect.height;
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+
+      // L'offsetParent di un absolute e' il primo antenato positioned: il
+      // container .relative del chiamante. getBoundingClientRect ci da' la
+      // posizione del container in coordinate viewport, indispensabile per
+      // verificare il fit dei lati senza dipendere dallo scroll della pagina.
+      const parent = el.offsetParent as HTMLElement | null;
+      const parentRect = parent ? parent.getBoundingClientRect() : null;
+      const parentLeft = parentRect ? parentRect.left : 0;
+      const parentTop = parentRect ? parentRect.top : 0;
+
+      // Conversione anchor: container-local → viewport.
+      const anchorClientX = parentLeft + anchorX;
+      const anchorClientY = parentTop + anchorY;
+
+      // ---- Verticale ----
+      // Tentativo 1: SOPRA il click (preferito).
+      const aboveTopClient = anchorClientY - popupH - ANCHOR_GAP_PX;
+      const fitsAbove = aboveTopClient >= VIEWPORT_EDGE_PX;
+      // Tentativo 2: SOTTO il click.
+      const belowTopClient = anchorClientY + ANCHOR_GAP_PX;
+      const fitsBelow = belowTopClient + popupH <= vh - VIEWPORT_EDGE_PX;
+
+      let usingFixed = false;
+      let topClient: number;
+      if (fitsAbove) {
+        topClient = aboveTopClient;
+      } else if (fitsBelow) {
+        topClient = belowTopClient;
+      } else {
+        // Nessuno dei due lati ha abbastanza spazio: position:fixed e
+        // centriamo verticalmente nel viewport. Edge case: grafico molto
+        // piccolo o viewport ridotto (mobile landscape su display corto).
+        usingFixed = true;
+        topClient = Math.max(VIEWPORT_EDGE_PX, (vh - popupH) / 2);
+      }
+
+      // ---- Orizzontale ----
+      // Default: popup centrato orizzontalmente sull'anchor. Quando l'anchor
+      // e' vicino al bordo destro o sinistro, il clamp viewport-aware lo fa
+      // scorrere lateralmente cosi' resta sempre interamente visibile (=
+      // "specchio" verso il lato opposto, come richiesto).
+      const desiredLeftClient = anchorClientX - popupW / 2;
+      const leftClient = Math.max(
+        VIEWPORT_EDGE_PX,
+        Math.min(vw - popupW - VIEWPORT_EDGE_PX, desiredLeftClient)
+      );
+
+      if (usingFixed) {
+        // Centrato orizzontalmente in viewport quando va in fallback.
+        const fixedLeft = Math.max(VIEWPORT_EDGE_PX, (vw - popupW) / 2);
+        setPlacedStyle({
+          position: 'fixed',
+          left: fixedLeft,
+          top: topClient,
+          visibility: 'visible',
+        });
+      } else {
+        // Posizionamento absolute: convertiamo le coordinate viewport
+        // calcolate in coordinate container-local sottraendo il rect del parent.
+        setPlacedStyle({
+          position: 'absolute',
+          left: leftClient - parentLeft,
+          top: topClient - parentTop,
+          visibility: 'visible',
+        });
+      }
+    };
+
+    computePlacement();
+    // Resize del viewport o scroll possono cambiare il fit (in particolare
+    // su mobile con la rotazione). Ricomputiamo per mantenere la visibilita'.
+    window.addEventListener('resize', computePlacement);
+    window.addEventListener('scroll', computePlacement, true);
+    return () => {
+      window.removeEventListener('resize', computePlacement);
+      window.removeEventListener('scroll', computePlacement, true);
+    };
+  }, [anchorX, anchorY]);
 
   const handleSave = () => {
     const trimmed = text.trim();
@@ -59,10 +175,11 @@ export default function NoteEditPopup({
 
   return (
     <div
+      ref={wrapperRef}
       role="dialog"
       aria-label={isEditing ? 'Modifica nota' : 'Nuova nota'}
-      className="absolute z-50 w-72 bg-surface-1 border border-gold/60 rounded-md shadow-card-md p-3"
-      style={{ left: x, top: y }}
+      className="z-50 w-72 bg-surface-1 border border-gold/60 rounded-md shadow-card-md p-3"
+      style={placedStyle}
       onClick={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}
     >

@@ -56,12 +56,14 @@ const FLY_COLOR = '#7fa885';   // sage
 const TOUCH_COLOR = '#d4a24c'; // amber
 const BOAT_GOLD = '#c9a169';   // gold dark
 
-// Stato del popup nota nel chart laboratorio. x/y sono pixel locali al
-// container del grafico SOG. mode 'create' = nuova nota (testo iniziale
-// vuoto), 'edit' = nota esistente (testo iniziale = nota.text).
+// Stato del popup nota nel chart laboratorio. anchorX/anchorY sono il
+// punto di click in pixel locali al container del grafico SOG; il popup
+// decide da solo se aprirsi sopra/sotto/centrato in base al fit viewport.
+// mode 'create' = nuova nota (testo iniziale vuoto), 'edit' = nota
+// esistente (testo iniziale = nota.text).
 interface NotePopupState {
-  x: number;
-  y: number;
+  anchorX: number;
+  anchorY: number;
   timestampSec: number;
   initialText: string;
   editingId: string | null;
@@ -779,17 +781,17 @@ export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresho
               sessionStartMs={sessionStartMs}
               highlightedNoteId={highlightedNoteId}
               onChartClick={(timestampSec, px, py) => {
-                setNotePopup({ x: px, y: py + 30, timestampSec, initialText: '', editingId: null });
+                setNotePopup({ anchorX: px, anchorY: py, timestampSec, initialText: '', editingId: null });
               }}
               onNoteClick={(note, px, py) => {
-                setNotePopup({ x: px, y: py + 12, timestampSec: note.timestampSec, initialText: note.text, editingId: note.id });
+                setNotePopup({ anchorX: px, anchorY: py, timestampSec: note.timestampSec, initialText: note.text, editingId: note.id });
                 flashHighlight(note.id);
               }}
             />
             {notePopup && (
               <NoteEditPopup
-                x={Math.max(8, Math.min(notePopup.x - 144, 9999))}
-                y={Math.max(8, notePopup.y)}
+                anchorX={notePopup.anchorX}
+                anchorY={notePopup.anchorY}
                 timestampDisplay={formatNoteTimestamp(notePopup.timestampSec)}
                 initialText={notePopup.initialText}
                 isEditing={notePopup.editingId !== null}

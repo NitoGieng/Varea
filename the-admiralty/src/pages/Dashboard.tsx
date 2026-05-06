@@ -144,12 +144,14 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
   const { notes, addNote, updateNote, deleteNote, numberOf } =
     useCoachNotes(primarySession?.fileName);
 
-  // Stato del popup di nuova/modifica nota nella Panoramica. x/y sono
-  // pixel relativi al container .relative del chiamante (SOG chart o
-  // mappa). editingId distingue create da edit.
+  // Stato del popup di nuova/modifica nota nella Panoramica. anchorX/anchorY
+  // sono il punto di click in pixel relativi al container .relative del
+  // chiamante (SOG chart o mappa); il popup calcola da solo la propria
+  // posizione (sopra/sotto/centrato) per restare visibile in viewport.
+  // editingId distingue create da edit.
   interface OverviewNotePopup {
-    x: number;
-    y: number;
+    anchorX: number;
+    anchorY: number;
     timestampSec: number;
     initialText: string;
     editingId: string | null;
@@ -227,11 +229,13 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
   const overviewMapContainerRef = useRef<HTMLDivElement>(null);
 
   // Handler per il click sull'area del SOG chart (Panoramica): apre il
-  // popup di nuova nota in posizione locale gia' pronta dal grafico.
+  // popup di nuova nota. anchorX/anchorY sono il punto di click in
+  // coordinate del container .relative; sara' il popup a decidere se
+  // disegnare sopra/sotto/centrato in base al fit viewport.
   const handleChartClickNote = useCallback((timestampSec: number, pixelX: number, pixelY: number) => {
     setNotePopup({
-      x: Math.max(8, pixelX - 144),
-      y: pixelY + 30,
+      anchorX: pixelX,
+      anchorY: pixelY,
       timestampSec,
       initialText: '',
       editingId: null,
@@ -242,8 +246,8 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
   // Click su un marker esistente nel SOG chart: avvia la modifica.
   const handleNoteMarkerClickInChart = useCallback((note: CoachNote, pixelX: number, pixelY: number) => {
     setNotePopup({
-      x: Math.max(8, pixelX - 144),
-      y: pixelY + 12,
+      anchorX: pixelX,
+      anchorY: pixelY,
       timestampSec: note.timestampSec,
       initialText: note.text,
       editingId: note.id,
@@ -263,8 +267,8 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
     const localX = rect ? clientX - rect.left : clientX;
     const localY = rect ? clientY - rect.top : clientY;
     setNotePopup({
-      x: Math.max(8, localX - 144),
-      y: localY + 16,
+      anchorX: localX,
+      anchorY: localY,
       timestampSec: t,
       initialText: '',
       editingId: null,
@@ -280,8 +284,8 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
     const localX = rect ? clientX - rect.left : clientX;
     const localY = rect ? clientY - rect.top : clientY;
     setNotePopup({
-      x: Math.max(8, localX - 144),
-      y: localY + 16,
+      anchorX: localX,
+      anchorY: localY,
       timestampSec: n.timestampSec,
       initialText: n.text,
       editingId: n.id,
@@ -1014,8 +1018,8 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
                       />
                       {notePopup && notePopup.anchor === 'chart' && (
                         <NoteEditPopup
-                          x={notePopup.x}
-                          y={notePopup.y}
+                          anchorX={notePopup.anchorX}
+                          anchorY={notePopup.anchorY}
                           timestampDisplay={formatNoteTimestamp(notePopup.timestampSec)}
                           initialText={notePopup.initialText}
                           isEditing={notePopup.editingId !== null}
@@ -1032,15 +1036,18 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
                     numberOf={numberOf}
                     formatTimestamp={formatNoteTimestamp}
                     onEdit={(n) => {
-                      // Apri il popup di modifica ancorato al chart, nel centro
-                      // approssimativo dell'area di disegno: l'utente arriva
-                      // qui dal pannello, non dal grafico, quindi non abbiamo
-                      // coordinate del click sorgente.
+                      // Apri il popup di modifica ancorato al chart, ancorato
+                      // al centro orizzontale e leggermente sotto il top: il
+                      // popup decidera' da solo se aprirsi sopra o sotto in
+                      // base allo spazio. L'utente arriva qui dal pannello,
+                      // non dal grafico, quindi non abbiamo coordinate del
+                      // click sorgente.
                       const rect = overviewChartContainerRef.current?.getBoundingClientRect();
-                      const cx = rect ? rect.width / 2 - 144 : 16;
+                      const cx = rect ? rect.width / 2 : 144;
+                      const cy = rect ? rect.height / 2 : 120;
                       setNotePopup({
-                        x: Math.max(8, cx),
-                        y: 24,
+                        anchorX: cx,
+                        anchorY: cy,
                         timestampSec: n.timestampSec,
                         initialText: n.text,
                         editingId: n.id,
@@ -1067,8 +1074,8 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
                   {MapMemoized}
                   {notePopup && notePopup.anchor === 'map' && (
                     <NoteEditPopup
-                      x={notePopup.x}
-                      y={notePopup.y}
+                      anchorX={notePopup.anchorX}
+                      anchorY={notePopup.anchorY}
                       timestampDisplay={formatNoteTimestamp(notePopup.timestampSec)}
                       initialText={notePopup.initialText}
                       isEditing={notePopup.editingId !== null}
