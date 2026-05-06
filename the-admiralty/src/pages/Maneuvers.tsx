@@ -29,6 +29,11 @@ interface Props {
   // vista. Pattern alternativo (lifting state up) richiederebbe spostare
   // tutto il modello di filtri in Dashboard: piu' ortogonale ma piu' churn.
   csvExportRef?: MutableRefObject<(() => void) | null>;
+  // Fonte vento (true = vento stimato dal GPS, false = Stormglass). Usata
+  // per il disclaimer nella VMG media leg e nel ManeuverSpeedChart aperto
+  // nel modale: nessuno dei due ha contesto sufficiente per inferirla, va
+  // passata da Dashboard che ha gia' l'EnvironmentInfo del backend.
+  isWindEstimated?: boolean;
 }
 
 // Hoistata fuori dal componente: pura, nessuna closure su state. In scope
@@ -63,7 +68,7 @@ type ManeuverRow = Maneuver & {
 const ROWS_PER_PAGE = 50;
 const PAGINATION_THRESHOLD = 500;
 
-export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange, csvExportRef }: Props) {
+export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange, csvExportRef, isWindEstimated }: Props) {
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<'ALL' | 'Virata' | 'Strambata'>('ALL');
   const [resultFilter, setResultFilter] = useState<'ALL' | 'FLY' | 'TOUCH'>('ALL');
@@ -128,7 +133,7 @@ export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange
     ? filteredManeuvers.slice((safePage - 1) * ROWS_PER_PAGE, safePage * ROWS_PER_PAGE)
     : filteredManeuvers;
 
-  const legs = useMemo<Array<[string, ManeuverRow[]]>>(() => {
+  const legs = useMemo<Array<[string, { maneuvers: ManeuverRow[]; vmgAvg: number | null }]>>(() => {
     if (isPaginated) return [];
     const groups: Record<string, ManeuverRow[]> = {};
     for (const m of visibleRows) {
@@ -142,8 +147,38 @@ export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange
       if (!groups[legName]) groups[legName] = [];
       groups[legName].push(m);
     }
-    return Object.entries(groups).sort((a, b) => b[0].localeCompare(a[0]));
-  }, [visibleRows, isPaginated]);
+    // VMG media per leg: prendiamo i campioni high-res delle sessioni che
+    // hanno almeno una manovra nel leg, filtriamo per la stessa ora locale
+    // e mediamo |vmg_knots|. Modulo (non signed) cosi' il numero e' positivo
+    // sia che il leg sia bolina sia lasco: un singolo indicatore di
+    // "efficienza verso/dal vento" comparabile fra leg eterogenei.
+    const result: Array<[string, { maneuvers: ManeuverRow[]; vmgAvg: number | null }]> = [];
+    for (const [legName, legManeuvers] of Object.entries(groups)) {
+      const match = legName.match(/^Leg (\d{2}):/);
+      const targetHour = match ? parseInt(match[1], 10) : NaN;
+      let vmgAvg: number | null = null;
+      if (Number.isFinite(targetHour)) {
+        const sids = new Set(legManeuvers.map(m => m.athleteId));
+        let sum = 0, count = 0;
+        for (const sid of sids) {
+          const sess = sessionById.get(sid);
+          if (!sess) continue;
+          for (const p of sess.highResTrack) {
+            const ms = parseBackendTimestamp(p.timestamp);
+            if (!Number.isFinite(ms)) continue;
+            if (new Date(ms).getHours() !== targetHour) continue;
+            const v = typeof p.vmg_knots === 'number' && Number.isFinite(p.vmg_knots) ? p.vmg_knots : null;
+            if (v === null) continue;
+            sum += Math.abs(v);
+            count += 1;
+          }
+        }
+        vmgAvg = count > 0 ? sum / count : null;
+      }
+      result.push([legName, { maneuvers: legManeuvers, vmgAvg }]);
+    }
+    return result.sort((a, b) => b[0].localeCompare(a[0]));
+  }, [visibleRows, isPaginated, sessionById]);
 
   const toggleLeg = (legName: string) => {
     setCollapsedLegs(prev => ({ ...prev, [legName]: !prev[legName] }));
@@ -466,8 +501,9 @@ export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange
           </div>
         ) : (
           <div className="space-y-4">
-            {legs.map(([legName, legManeuvers], legIndex) => {
+            {legs.map(([legName, legData], legIndex) => {
               const isCollapsed = collapsedLegs[legName];
+              const { maneuvers: legManeuvers, vmgAvg } = legData;
               return (
                 <div key={legIndex} className="bg-surface-1 border border-border rounded-md shadow-card overflow-hidden">
                   <button
@@ -481,9 +517,30 @@ export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange
                         <span className="text-ink-muted text-caption ml-2 font-sans not-italic font-mono tabular">{legName.split(' ').slice(2).join(' ')}</span>
                       </h2>
                     </div>
-                    <span className="eyebrow bg-bg px-2 py-1 rounded-sm border border-border">
-                      <span className="font-mono tabular normal-case tracking-normal text-ink">{legManeuvers.length}</span> manovre
-                    </span>
+                    {/* Riepilogo leg: VMG media + conteggio manovre. La VMG
+                        e' "n/d" se nessun campione high-res del leg aveva
+                        TWA valida (TWD assente per quell'ora). */}
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="eyebrow bg-bg px-2 py-1 rounded-sm border border-border"
+                        title={`VMG media del leg (modulo, indipendente dall'andatura). ${
+                          typeof isWindEstimated === 'boolean'
+                            ? (isWindEstimated
+                                ? 'Calcolata su vento stimato dal GPS.'
+                                : 'Calcolata su vento osservato da Stormglass.')
+                            : ''
+                        }`.trim()}
+                      >
+                        <span className="normal-case tracking-normal text-ink-muted">VMG</span>{' '}
+                        <span className="font-mono tabular normal-case tracking-normal text-ink">
+                          {vmgAvg != null ? vmgAvg.toFixed(1) : 'n/d'}
+                        </span>
+                        {vmgAvg != null && <span className="normal-case tracking-normal text-ink-muted"> kts</span>}
+                      </span>
+                      <span className="eyebrow bg-bg px-2 py-1 rounded-sm border border-border">
+                        <span className="font-mono tabular normal-case tracking-normal text-ink">{legManeuvers.length}</span> manovre
+                      </span>
+                    </div>
                   </button>
 
                   {!isCollapsed && (
@@ -562,6 +619,7 @@ export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange
                 maneuver={selectedManeuver}
                 highResTrack={sessionById.get(selectedManeuver.athleteId)?.highResTrack ?? []}
                 height={320}
+                isWindEstimated={isWindEstimated}
               />
             </div>
           </div>

@@ -35,9 +35,16 @@ interface Props {
   //                     da sessionStartMs + t*1000.
   // Allineato al toggle "Relativo / Orologio" della FilterBar (Dashboard).
   useAbsoluteTime?: boolean;
+  // Fonte vento usata dal backend per calcolare TWA -> VMG. Quando true il
+  // vento e' una stima euristica dal GPS (Stormglass non disponibile per la
+  // sessione); quando false e' un'osservazione satellitare. La legenda VMG
+  // mostra una micro-pill che ricorda al coach l'origine del valore: la
+  // stessa VMG con vento stimato vale meno come benchmark.
+  isWindEstimated?: boolean;
 }
 
 const COLOR_LINE = '#c9a169';
+const COLOR_VMG = '#5fb6c4'; // teal — distinto dal gold SOG, leggibile su dark
 const COLOR_GRID = 'rgba(201, 161, 105, 0.12)';
 const COLOR_TICK = '#a8b3c4';
 const COLOR_TOOLTIP_BG = '#0a1628';
@@ -83,6 +90,7 @@ type AnyProps = any;
 function CustomTooltip({ active, payload, formatTick }: AnyProps) {
   if (!active || !payload || !payload.length) return null;
   const d = payload[0].payload;
+  const vmgValid = typeof d.vmg === 'number' && Number.isFinite(d.vmg);
   return (
     <div
       className="px-3 py-2 rounded-md font-mono tabular text-caption"
@@ -96,7 +104,15 @@ function CustomTooltip({ active, payload, formatTick }: AnyProps) {
       <p className="text-eyebrow uppercase tracking-eyebrow mb-1" style={{ color: COLOR_LINE }}>
         {formatTick(d.t)}
       </p>
-      <p className="text-body-lg leading-tight">SOG <span className="font-bold">{d.sog.toFixed(1)}</span> kts</p>
+      <p className="text-body-lg leading-tight">
+        <span style={{ color: COLOR_LINE }}>SOG</span>{' '}
+        <span className="font-bold">{d.sog.toFixed(1)}</span> kts
+      </p>
+      <p className="text-body leading-tight" style={{ color: COLOR_VMG }}>
+        VMG{' '}
+        <span className="font-bold">{vmgValid ? d.vmg.toFixed(1) : 'n/d'}</span>
+        {vmgValid ? ' kts' : ''}
+      </p>
     </div>
   );
 }
@@ -116,12 +132,13 @@ export default function SessionSpeedChart({
   onChartClick,
   onNoteClick,
   useAbsoluteTime = false,
+  isWindEstimated,
 }: Props) {
   const { chartData, minSec, maxSec } = useMemo(() => {
     if (!track || track.length === 0 || !Number.isFinite(sessionStartMs)) {
-      return { chartData: [] as Array<{ t: number; sog: number }>, minSec: 0, maxSec: 0 };
+      return { chartData: [] as Array<{ t: number; sog: number; vmg: number | null }>, minSec: 0, maxSec: 0 };
     }
-    const out: Array<{ t: number; sog: number }> = [];
+    const out: Array<{ t: number; sog: number; vmg: number | null }> = [];
     let max = -Infinity;
     let min = Infinity;
     for (const p of track) {
@@ -130,7 +147,11 @@ export default function SessionSpeedChart({
       const t = Math.round((ms - sessionStartMs) / 1000);
       const sog = Number(p.sog_knots);
       if (!Number.isFinite(sog)) continue;
-      out.push({ t, sog });
+      // vmg_knots e' null sui campioni dove il backend non aveva TWA: passiamo
+      // null a Recharts cosi' la linea si interrompe naturalmente sul gap.
+      const vmgRaw = p.vmg_knots;
+      const vmg = typeof vmgRaw === 'number' && Number.isFinite(vmgRaw) ? vmgRaw : null;
+      out.push({ t, sog, vmg });
       if (t > max) max = t;
       if (t < min) min = t;
     }
@@ -185,7 +206,34 @@ export default function SessionSpeedChart({
   };
 
   return (
-    <div style={{ width: '100%', height }} className="cursor-crosshair">
+    <div style={{ width: '100%', height }} className="cursor-crosshair relative">
+      {/* Legenda overlay top-right: minimale, font-mono coerente con i tick.
+          Posizionata fuori dal flow del LineChart cosi' non interferisce con
+          l'area di plot e con i marker delle note. */}
+      <div className="absolute top-1 right-3 z-10 flex items-center gap-3 text-eyebrow uppercase tracking-eyebrow pointer-events-none select-none">
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block w-3 h-0.5" style={{ backgroundColor: COLOR_LINE }} />
+          <span style={{ color: COLOR_LINE }}>SOG</span>
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block w-3 h-0.5" style={{ backgroundColor: COLOR_VMG }} />
+          <span style={{ color: COLOR_VMG }}>VMG</span>
+        </span>
+        {/* Fonte vento: pill discreta accanto alla legenda. Niente parole
+            quando isWindEstimated e' undefined (caso noto: dati di test). */}
+        {typeof isWindEstimated === 'boolean' && (
+          <span
+            className="flex items-center gap-1"
+            title={isWindEstimated
+              ? 'VMG calcolata su vento stimato dal GPS (Stormglass non disponibile)'
+              : 'VMG calcolata su vento osservato da Stormglass'}
+            style={{ color: isWindEstimated ? '#d4a345' : '#8a9a5b' }}
+          >
+            <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ backgroundColor: isWindEstimated ? '#d4a345' : '#8a9a5b' }} />
+            <span>{isWindEstimated ? 'Stimato GPS' : 'Stormglass'}</span>
+          </span>
+        )}
+      </div>
       <ResponsiveContainer width="100%" height="100%">
         <LineChart
           data={chartData}
@@ -220,6 +268,21 @@ export default function SessionSpeedChart({
             dot={false}
             isAnimationActive={false}
             activeDot={{ r: 3.5, fill: COLOR_LINE, stroke: COLOR_TOOLTIP_BG, strokeWidth: 2 }}
+          />
+
+          {/* VMG sovrapposta: piu' sottile della SOG per gerarchia visiva,
+              connectNulls=false cosi' i gap (TWA assente) interrompono la
+              curva invece di mascherarli con interpolazione lineare. */}
+          <Line
+            type="monotone"
+            dataKey="vmg"
+            stroke={COLOR_VMG}
+            strokeWidth={1.1}
+            strokeOpacity={0.9}
+            dot={false}
+            isAnimationActive={false}
+            connectNulls={false}
+            activeDot={{ r: 3, fill: COLOR_VMG, stroke: COLOR_TOOLTIP_BG, strokeWidth: 2 }}
           />
 
           {/* Linee tratteggiate gold per ogni nota: leggibili a colpo d'occhio

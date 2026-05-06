@@ -44,6 +44,9 @@ interface ManeuverFootprintProps {
   // strambata): stessa decisione in entrambe le viste.
   flyThreshold: number;
   onFlyThresholdChange: (v: number) => void;
+  // Fonte vento attiva per la VMG (true = stimata dal GPS, false = Stormglass).
+  // Inoltrata al ManeuverSpeedChart che la mostra come pill nella legenda.
+  isWindEstimated?: boolean;
 }
 
 // Fallback stabile per highResTrack: `?? []` inline romperebbe ref equality
@@ -69,7 +72,7 @@ interface NotePopupState {
   editingId: string | null;
 }
 
-export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresholdChange }: ManeuverFootprintProps) {
+export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresholdChange, isWindEstimated }: ManeuverFootprintProps) {
   const [mode, setMode] = useState<'FLY' | 'TOUCH'>('FLY');
   // Selezione per chiave (timestamp) anziche' indice: cambiare filtro
   // FLY/TOUCH o soglia ricostruisce sortedManeuvers e quindi gli indici
@@ -780,6 +783,7 @@ export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresho
               numberOf={numberOf}
               sessionStartMs={sessionStartMs}
               highlightedNoteId={highlightedNoteId}
+              isWindEstimated={isWindEstimated}
               onChartClick={(timestampSec, px, py) => {
                 setNotePopup({ anchorX: px, anchorY: py, timestampSec, initialText: '', editingId: null });
               }}

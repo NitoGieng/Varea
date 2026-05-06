@@ -7,6 +7,7 @@ import os
 from dotenv import load_dotenv
 
 load_dotenv()
+import numpy as np
 import pandas as pd
 
 from src.ingestion.fit_parser import TelemetryIngestor
@@ -143,6 +144,31 @@ async def analyze_fit_file(file: UploadFile = File(...)):
         maneuvers_log = analyzer.detect_maneuvers(df, df['twd_dynamic'])
         df['twa'] = analyzer.angular_diff(df['cog_deg'], df['twd_dynamic']).abs()
 
+        # --- VMG: Velocity Made Good ---
+        # vmg = sog * cos(twa), signed: positivo = guadagno verso vento (bolina),
+        # negativo = perdita relativa al vento (lasco/poppa). Punto-per-punto sul
+        # resample 1Hz: NaN dove twa o sog mancano. Il frontend interrompe la
+        # linea sui null. Aggregati: bolina come signed (positivo), lasco come
+        # |vmg| medio (positivo, "velocita' verso sottovento") cosi' l'UI mostra
+        # entrambi i KPI come numeri positivi confrontabili.
+        df['vmg_knots'] = df['sog_knots'] * np.cos(np.radians(df['twa']))
+        vmg_valid_mask = df['vmg_knots'].notna()
+
+        bolina_mask = df['andatura'] == 'Bolina'
+        lasco_mask = df['andatura'] == 'Lasco/Poppa'
+
+        def _safe_float(v):
+            return None if pd.isna(v) else float(v)
+
+        vmg_bolina_avg = _safe_float(df.loc[bolina_mask, 'vmg_knots'].mean()) if bolina_mask.any() else None
+        vmg_bolina_max = _safe_float(df.loc[bolina_mask, 'vmg_knots'].max()) if bolina_mask.any() else None
+        vmg_lasco_avg = _safe_float(df.loc[lasco_mask, 'vmg_knots'].abs().mean()) if lasco_mask.any() else None
+        # SOG media in bolina/lasco sullo stesso periodo: serve al frontend per
+        # mostrare la riga di confronto "Vel. media bolina X -> VMG effettiva Y"
+        # senza dover ricalcolare lato client (single source of truth).
+        sog_bolina_avg = _safe_float(df.loc[bolina_mask, 'sog_knots'].mean()) if bolina_mask.any() else None
+        sog_lasco_avg = _safe_float(df.loc[lasco_mask, 'sog_knots'].mean()) if lasco_mask.any() else None
+
         # Log diagnostico leggibile nella root del backend. Non blocca la
         # risposta API se per qualche motivo la scrittura fallisce.
         try:
@@ -163,25 +189,30 @@ async def analyze_fit_file(file: UploadFile = File(...)):
         df = df.fillna(0.0)
 
         # BINARIO 1: Mappa (1 punto ogni 5 secondi, leggero)
+        # vmg_knots e' null quando twa non era disponibile (TWD assente) cosi'
+        # il frontend interrompe la linea VMG senza fittizi 0.0 dopo il fillna.
         map_df = df.iloc[::5]
         track_data = []
         for idx, row in map_df.iterrows():
             if row['lat'] != 0.0 and row['lon'] != 0.0:
+                vmg_valid = bool(vmg_valid_mask.loc[idx]) if idx in vmg_valid_mask.index else False
                 track_data.append({
                     "timestamp": str(idx),
                     "lat": float(row['lat']),
                     "lon": float(row['lon']),
                     "sog_knots": float(row['sog_knots']),
                     "twa": float(row['twa']),
-                    "andatura": str(row.get('andatura', 'Sconosciuta'))
+                    "andatura": str(row.get('andatura', 'Sconosciuta')),
+                    "vmg_knots": float(row['vmg_knots']) if vmg_valid else None
                 })
 
         # BINARIO 2: Alta Risoluzione 1Hz — StartAnalysis, mappa (solo sessioni <= 1h)
-        # e grafico SOG delle manovre (sempre). Arricchito con lat/lon/twa/andatura.
+        # e grafico SOG delle manovre (sempre). Arricchito con lat/lon/twa/andatura/vmg.
         high_res_track = []
         for idx, row in df.iterrows():
             if row['lat'] == 0.0 and row['lon'] == 0.0:
                 continue
+            vmg_valid = bool(vmg_valid_mask.loc[idx]) if idx in vmg_valid_mask.index else False
             high_res_track.append({
                 "timestamp": str(idx),
                 "lat": float(row['lat']),
@@ -189,7 +220,8 @@ async def analyze_fit_file(file: UploadFile = File(...)):
                 "sog_knots": float(row['sog_knots']),
                 "cog_deg": float(row['cog_deg']),
                 "twa": float(row['twa']),
-                "andatura": str(row.get('andatura', 'Sconosciuta'))
+                "andatura": str(row.get('andatura', 'Sconosciuta')),
+                "vmg_knots": float(row['vmg_knots']) if vmg_valid else None
             })
 
         try:
@@ -215,6 +247,10 @@ async def analyze_fit_file(file: UploadFile = File(...)):
                 for e in api_twd_list
             ]
 
+        # Helper per arrotondare gli aggregati VMG senza far esplodere None.
+        def _round_or_none(v, ndigits):
+            return None if v is None else round(v, ndigits)
+
         report = {
             "session_info": {
                 "file_name": file.filename,
@@ -222,7 +258,16 @@ async def analyze_fit_file(file: UploadFile = File(...)):
                 "duration_seconds": duration_sec,
                 "distance_nm": round(distance_nm, 2),
                 "sog_max_kts": round(sog_max, 2),
-                "sog_avg_kts": round(sog_avg, 2)
+                "sog_avg_kts": round(sog_avg, 2),
+                # Aggregati VMG sull'intera sessione. Le card della Panoramica
+                # ricalcolano questi valori sul track filtrato dal clock usando
+                # vmg_knots punto-per-punto: questi sono il "summary globale"
+                # esposto per altri consumatori (PDF, CLI, futuri export).
+                "vmg_bolina_avg_kts": _round_or_none(vmg_bolina_avg, 2),
+                "vmg_bolina_max_kts": _round_or_none(vmg_bolina_max, 2),
+                "vmg_lasco_avg_kts": _round_or_none(vmg_lasco_avg, 2),
+                "sog_bolina_avg_kts": _round_or_none(sog_bolina_avg, 2),
+                "sog_lasco_avg_kts": _round_or_none(sog_lasco_avg, 2)
             },
             "environment": {
                 "api_twd_deg": api_twd_display,

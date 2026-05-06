@@ -10,6 +10,10 @@ export interface TrackPoint {
   twa?: number;
   andatura?: string;
   cog_deg?: number;
+  // VMG signed in nodi: positivo = guadagno verso vento (bolina), negativo =
+  // perdita relativa al vento (lasco/poppa). null quando il backend non aveva
+  // un TWA valido per il punto: il frontend interrompe la curva VMG sui null.
+  vmg_knots?: number | null;
 }
 
 export interface HighResPoint extends TrackPoint {
@@ -40,6 +44,19 @@ export interface SessionInfo {
   distance_nm: number;
   sog_max_kts: number;
   sog_avg_kts: number;
+  // Aggregati VMG sull'intera sessione (calcolati dal backend con i tag
+  // 'Bolina' / 'Lasco/Poppa'). Le card della Panoramica ricalcolano questi
+  // valori sul track filtrato dal clock; questi servono come summary globale
+  // per consumatori non-Dashboard (CLI, futuri export).
+  // null quando l'andatura corrispondente e' assente nella sessione o
+  // quando non era disponibile alcuna TWD.
+  vmg_bolina_avg_kts?: number | null;
+  vmg_bolina_max_kts?: number | null;
+  vmg_lasco_avg_kts?: number | null;
+  // SOG media sui punti di andatura corrispondente — utili per esprimere
+  // il rapporto VMG/SOG ("efficienza verso vento" o "verso sottovento").
+  sog_bolina_avg_kts?: number | null;
+  sog_lasco_avg_kts?: number | null;
 }
 
 // Singolo campione orario della curva del vento (Stormglass).

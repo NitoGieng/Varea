@@ -366,6 +366,42 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
       }
     }
 
+    // VMG aggregata sul segmento filtrato. Stessa fonte di sogMax/sogAvg per
+    // coerenza fra metriche. Bolina come signed (cos>0 -> positiva), lasco
+    // come |vmg| medio (cos<0 -> negativa, ma l'UI parla di "velocita' verso
+    // sottovento" quindi mostriamo il modulo). Punti con vmg_knots null
+    // (TWD assente per quel campione) sono saltati: il count effettivo
+    // governa il fallback "n/d".
+    const isBolina = (s: string | undefined) => /bolina|upwind/i.test(s || '');
+    const isLasco = (s: string | undefined) => /poppa|lasco|downwind|run|broad/i.test(s || '');
+    let vmgBolinaSum = 0, vmgBolinaCount = 0, vmgBolinaMax: number | null = null;
+    let vmgLascoSum = 0, vmgLascoCount = 0;
+    let sogBolinaSum = 0, sogBolinaCount = 0;
+    let sogLascoSum = 0, sogLascoCount = 0;
+    for (const p of sogSource) {
+      const andatura = p.andatura;
+      const sog = Number(p.sog_knots);
+      const vmg = typeof p.vmg_knots === 'number' && Number.isFinite(p.vmg_knots) ? p.vmg_knots : null;
+      if (isBolina(andatura)) {
+        if (Number.isFinite(sog)) { sogBolinaSum += sog; sogBolinaCount += 1; }
+        if (vmg !== null) {
+          vmgBolinaSum += vmg;
+          vmgBolinaCount += 1;
+          if (vmgBolinaMax === null || vmg > vmgBolinaMax) vmgBolinaMax = vmg;
+        }
+      } else if (isLasco(andatura)) {
+        if (Number.isFinite(sog)) { sogLascoSum += sog; sogLascoCount += 1; }
+        if (vmg !== null) {
+          vmgLascoSum += Math.abs(vmg);
+          vmgLascoCount += 1;
+        }
+      }
+    }
+    const vmgBolinaAvg = vmgBolinaCount > 0 ? vmgBolinaSum / vmgBolinaCount : null;
+    const vmgLascoAvg = vmgLascoCount > 0 ? vmgLascoSum / vmgLascoCount : null;
+    const sogBolinaAvgNum = sogBolinaCount > 0 ? sogBolinaSum / sogBolinaCount : null;
+    const sogLascoAvgNum = sogLascoCount > 0 ? sogLascoSum / sogLascoCount : null;
+
     return {
       virate,
       strambate,
@@ -381,6 +417,11 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
       filteredHighRes: segHighRes,
       sogMax,
       sogAvg,
+      vmgBolinaAvg,
+      vmgBolinaMax,
+      vmgLascoAvg,
+      sogBolinaAvgNum,
+      sogLascoAvgNum,
     };
   }, [telemetryData, debouncedRange]);
 
@@ -1050,6 +1091,7 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
                         onChartClick={handleChartClickNote}
                         onNoteClick={handleNoteMarkerClickInChart}
                         useAbsoluteTime={useAbsoluteTime}
+                        isWindEstimated={environment.is_estimated}
                       />
                       {notePopup && notePopup.anchor === 'chart' && (
                         <NoteEditPopup
@@ -1098,6 +1140,38 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
                 </section>
               )}
 
+              {/* VELOCITY MADE GOOD — efficienza reale verso il segnavento.
+                  Le card rispettano il filtro temporale del clock come tutte
+                  le altre metriche della Panoramica. Bolina mostra la VMG
+                  signed (positiva = guadagno verso vento), Lasco mostra |VMG|
+                  (positivo "verso sottovento") cosi' i due numeri sono
+                  confrontabili a colpo d'occhio. La riga di confronto
+                  Vel.media -> VMG aiuta l'allenatore a capire l'efficienza
+                  angolare senza dover aprire documentazione. */}
+              {segmentMetrics && (
+                <section className="mb-10">
+                  <p className="eyebrow mb-3">Velocity Made Good</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <VmgCard
+                      label="VMG Bolina"
+                      value={segmentMetrics.vmgBolinaAvg}
+                      peak={segmentMetrics.vmgBolinaMax}
+                      sogAvg={segmentMetrics.sogBolinaAvgNum}
+                      sogLabel="Vel. media bolina"
+                      isEstimated={environment.is_estimated}
+                    />
+                    <VmgCard
+                      label="VMG Lasco"
+                      value={segmentMetrics.vmgLascoAvg}
+                      peak={null}
+                      sogAvg={segmentMetrics.sogLascoAvgNum}
+                      sogLabel="Vel. media lasco"
+                      isEstimated={environment.is_estimated}
+                    />
+                  </div>
+                </section>
+              )}
+
               {/* MAPPA */}
               <section className="bg-surface-1 border border-border rounded-lg shadow-card overflow-hidden">
                 <div className="px-6 py-4 border-b border-border flex items-center justify-between">
@@ -1140,6 +1214,7 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
                 flyThreshold={flyThreshold}
                 onFlyThresholdChange={setFlyThreshold}
                 csvExportRef={maneuversCsvExportRef}
+                isWindEstimated={environment.is_estimated}
               />
             </div>
           )}
@@ -1149,6 +1224,7 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
               sessions={labSessions}
               flyThreshold={flyThreshold}
               onFlyThresholdChange={setFlyThreshold}
+              isWindEstimated={environment.is_estimated}
             />
           )}
 
@@ -1616,6 +1692,65 @@ function PerformanceCard({
       <p className="text-caption text-ink-muted mt-2 min-h-[1em]">
         {pctTime != null ? `${pctTime.toFixed(0)}% del tempo` : '\u00A0'}
       </p>
+    </div>
+  );
+}
+
+// Card VMG dedicata: stessa famiglia visiva di PerformanceCard ma senza la
+// percentuale di tempo (la VMG non e' una "permanenza" ma un'efficienza).
+// Aggiunge una riga di confronto Vel.media -> VMG che educa l'allenatore
+// alla differenza fra "quanto vai" e "quanto guadagni verso vento", e una
+// micropill in basso che dichiara la fonte del vento usato per il calcolo
+// (Stormglass / GPS): la qualita' della VMG dipende direttamente da quella.
+function VmgCard({
+  label,
+  value,
+  peak,
+  sogAvg,
+  sogLabel,
+  isEstimated,
+}: {
+  label: string;
+  value: number | null;
+  peak: number | null;
+  sogAvg: number | null;
+  sogLabel: string;
+  isEstimated: boolean;
+}) {
+  const display = value != null && Number.isFinite(value) ? value.toFixed(1) : 'n/d';
+  const peakDisplay = peak != null && Number.isFinite(peak) ? peak.toFixed(1) : null;
+  const sogDisplay = sogAvg != null && Number.isFinite(sogAvg) ? sogAvg.toFixed(1) : null;
+  return (
+    <div className="bg-surface-1 border border-border rounded-md p-5 relative overflow-hidden">
+      <div className="absolute top-0 left-0 w-0.5 h-full bg-gold" />
+      <p className="eyebrow mb-3">{label}</p>
+      <div className="flex items-baseline gap-1.5">
+        <span className="font-mono text-3xl text-ink tabular leading-none">{display}</span>
+        <span className="text-caption text-gold">kts</span>
+      </div>
+      <p className="text-caption text-ink-muted mt-2 min-h-[1em] font-mono tabular">
+        {peakDisplay != null ? `picco: ${peakDisplay} kts` : '\u00A0'}
+      </p>
+      {sogDisplay != null && value != null && Number.isFinite(value) ? (
+        <p className="text-caption text-ink-2 mt-2 leading-snug">
+          {sogLabel}: <span className="font-mono tabular text-ink">{sogDisplay}</span> kts
+          {' '}<span className="text-ink-muted">→</span>{' '}
+          VMG effettiva: <span className="font-mono tabular text-ink">{display}</span> kts
+        </p>
+      ) : (
+        <p className="text-caption text-ink-muted mt-2 italic">Dati insufficienti per il confronto.</p>
+      )}
+      <div className="mt-3 inline-flex items-center gap-1.5">
+        <span className={`w-1.5 h-1.5 rounded-full ${isEstimated ? 'bg-amber' : 'bg-sage'}`} />
+        <span
+          className={`text-eyebrow uppercase tracking-eyebrow ${isEstimated ? 'text-amber' : 'text-sage'}`}
+          title={isEstimated
+            ? 'VMG calcolata su vento dedotto dalle traiettorie GPS'
+            : 'VMG calcolata su vento osservato da Stormglass'}
+        >
+          {isEstimated ? 'Vento stimato dal GPS' : 'Vento da Stormglass'}
+        </span>
+      </div>
     </div>
   );
 }

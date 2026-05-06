@@ -166,15 +166,17 @@ function computeAggregates(track: TrackPoint[], threshold: number): Aggregates {
     }
     const cls = classifyAndatura(p.andatura);
     counts[cls] += 1;
-    // VMG: serve TWA per proiettare la velocita' lungo l'asse del vento.
-    // Convenzione: bolina = guadagno verso vento (cos positivo per |twa| < 90),
-    // poppa = allontanamento dal vento (|cos| in modulo).
-    if (typeof p.twa === 'number' && Number.isFinite(p.twa) && Number.isFinite(sog)) {
-      const twaRad = (p.twa * Math.PI) / 180;
+    // VMG: usiamo il campo vmg_knots gia' calcolato dal backend (single
+    // source of truth con la Panoramica e con il grafico SOG-VMG). Il
+    // backend espone il valore con segno: positivo = guadagno verso vento.
+    // Per il lasco mostriamo |vmg| cosi' la metrica e' "velocita' verso
+    // sottovento" (numero positivo, comparabile a quello di bolina).
+    const vmgRaw = p.vmg_knots;
+    if (typeof vmgRaw === 'number' && Number.isFinite(vmgRaw)) {
       if (cls === 'bolina') {
-        vmgUp.push(sog * Math.cos(twaRad));
+        vmgUp.push(vmgRaw);
       } else if (cls === 'lasco') {
-        vmgDown.push(sog * Math.abs(Math.cos(twaRad)));
+        vmgDown.push(Math.abs(vmgRaw));
       }
     }
   }

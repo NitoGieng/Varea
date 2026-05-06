@@ -32,6 +32,10 @@ interface Props {
   // pre-calcolato qui dal relativeTime + maneuverMs.
   onChartClick?: (timestampSec: number, pixelX: number, pixelY: number) => void;
   onNoteClick?: (note: CoachNote, pixelX: number, pixelY: number) => void;
+  // Fonte vento usata dal backend per calcolare TWA -> VMG (vedi commento
+  // gemello in SessionSpeedChart). La micro-pill nella legenda fa da
+  // disclaimer cosi' il coach sa quanto pesare il valore.
+  isWindEstimated?: boolean;
 }
 
 // Finestra fissa attorno al cambio mura: -20s / +40s (60s totali).
@@ -43,6 +47,7 @@ const V_OUT_OFFSET_S = 12;
 // Palette coerente con i token semantici del design system (hex hardcoded
 // perche' Recharts non legge le CSS vars). Default = tema dark.
 const COLOR_LINE = '#c9a169';   // gold
+const COLOR_VMG = '#5fb6c4';    // teal — distinto dai marker V.IN/V.MIN/V.OUT
 const COLOR_GRID = 'rgba(201, 161, 105, 0.15)'; // gold/15 — subtle ma visibili in dark
 const COLOR_AXIS_DIM = '#5e6b80'; // ink-muted dark
 const COLOR_TICK = '#a8b3c4';
@@ -71,6 +76,7 @@ function CustomTooltip({ active, payload }: AnyProps) {
   const label = d.relativeTime === 0
     ? 'CAMBIO MURA'
     : d.relativeTime < 0 ? `${Math.abs(d.relativeTime)}s prima` : `+${d.relativeTime}s`;
+  const vmgValid = typeof d.vmg === 'number' && Number.isFinite(d.vmg);
   return (
     <div
       className="px-3 py-2 rounded-md font-mono tabular text-caption"
@@ -82,7 +88,14 @@ function CustomTooltip({ active, payload }: AnyProps) {
       }}
     >
       <p className="text-eyebrow uppercase tracking-eyebrow mb-1" style={{ color: COLOR_LINE }}>{label}</p>
-      <p className="text-body-lg leading-tight">SOG <span className="font-bold">{d.sog.toFixed(1)}</span> kts</p>
+      <p className="text-body-lg leading-tight">
+        <span style={{ color: COLOR_LINE }}>SOG</span>{' '}
+        <span className="font-bold">{d.sog.toFixed(1)}</span> kts
+      </p>
+      <p className="text-body leading-tight" style={{ color: COLOR_VMG }}>
+        VMG <span className="font-bold">{vmgValid ? d.vmg.toFixed(1) : 'n/d'}</span>
+        {vmgValid ? ' kts' : ''}
+      </p>
       <p className="text-caption" style={{ color: COLOR_AXIS_DIM }}>COG {d.cog.toFixed(0)}°</p>
     </div>
   );
@@ -103,10 +116,11 @@ export default function ManeuverSpeedChart({
   highlightedNoteId,
   onChartClick,
   onNoteClick,
+  isWindEstimated,
 }: Props) {
   const { chartData, vMinTime, vInValue, vMinValue, vOutValue, ttrTarget } = useMemo(() => {
     const empty = {
-      chartData: [] as Array<{ relativeTime: number; sog: number; cog: number; epoch: number }>,
+      chartData: [] as Array<{ relativeTime: number; sog: number; cog: number; epoch: number; vmg: number | null }>,
       vMinTime: null as number | null,
       vInValue: null as number | null,
       vMinValue: null as number | null,
@@ -121,15 +135,22 @@ export default function ManeuverSpeedChart({
     const startEpoch = t0 - PRE_WINDOW_S * 1000;
     const endEpoch = t0 + POST_WINDOW_S * 1000;
 
-    const filtered: Array<{ relativeTime: number; sog: number; cog: number; epoch: number }> = [];
+    const filtered: Array<{ relativeTime: number; sog: number; cog: number; epoch: number; vmg: number | null }> = [];
     for (const p of highResTrack) {
       const epoch = parseBackendTimestamp(p.timestamp);
       if (isNaN(epoch) || epoch < startEpoch || epoch > endEpoch) continue;
+      // VMG signed dal backend: positivo = guadagno verso vento. Mantieni il
+      // segno qui (il grafico la traccia attorno a SOG, puo' andare anche
+      // negativa nei +40s di una virata che apre l'angolo). connectNulls
+      // del Recharts gestisce le interruzioni quando la TWA mancava.
+      const vmgRaw = (p as { vmg_knots?: number | null }).vmg_knots;
+      const vmg = typeof vmgRaw === 'number' && Number.isFinite(vmgRaw) ? vmgRaw : null;
       filtered.push({
         relativeTime: Math.round((epoch - t0) / 1000),
         sog: Number(p.sog_knots) || 0,
         cog: Number(p.cog_deg) || 0,
         epoch,
+        vmg,
       });
     }
 
@@ -201,7 +222,35 @@ export default function ManeuverSpeedChart({
   };
 
   return (
-    <div style={{ width: '100%', height }} className={onChartClick ? 'cursor-crosshair' : ''}>
+    <div style={{ width: '100%', height }} className={`relative ${onChartClick ? 'cursor-crosshair' : ''}`}>
+      {/* Legenda overlay top-right: minimale, font-mono coerente con i tick.
+          Aiuta il coach a distinguere a colpo d'occhio le due curve quando
+          la VMG si avvicina alla SOG (bolina) o diverge (lasco). */}
+      <div className="absolute top-1 right-3 z-10 flex items-center gap-3 text-eyebrow uppercase tracking-eyebrow pointer-events-none select-none">
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block w-3 h-0.5" style={{ backgroundColor: COLOR_LINE }} />
+          <span style={{ color: COLOR_LINE }}>SOG</span>
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block w-3 h-0.5" style={{ backgroundColor: COLOR_VMG }} />
+          <span style={{ color: COLOR_VMG }}>VMG</span>
+        </span>
+        {/* Fonte vento: pill discreta accanto alla legenda. Coerente con
+            SessionSpeedChart per non confondere il coach quando passa dal
+            grafico Panoramica a quello del Laboratorio. */}
+        {typeof isWindEstimated === 'boolean' && (
+          <span
+            className="flex items-center gap-1"
+            title={isWindEstimated
+              ? 'VMG calcolata su vento stimato dal GPS (Stormglass non disponibile)'
+              : 'VMG calcolata su vento osservato da Stormglass'}
+            style={{ color: isWindEstimated ? '#d4a345' : '#8a9a5b' }}
+          >
+            <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ backgroundColor: isWindEstimated ? '#d4a345' : '#8a9a5b' }} />
+            <span>{isWindEstimated ? 'Stimato GPS' : 'Stormglass'}</span>
+          </span>
+        )}
+      </div>
       <ResponsiveContainer width="100%" height="100%">
         <LineChart
           data={chartData}
@@ -318,6 +367,23 @@ export default function ManeuverSpeedChart({
             dot={false}
             isAnimationActive={false}
             activeDot={{ r: 4, fill: COLOR_MARKER, stroke: COLOR_TOOLTIP_BG, strokeWidth: 2 }}
+          />
+
+          {/* VMG sovrapposta: piu' sottile della SOG per gerarchia visiva.
+              connectNulls=false cosi' i gap (TWA mancante) interrompono la
+              curva invece di interpolare. La VMG puo' diventare negativa
+              dopo il cambio mura mentre la barca apre l'angolo: e' un
+              segnale didattico utile per il coach, non un errore. */}
+          <Line
+            type="monotone"
+            dataKey="vmg"
+            stroke={COLOR_VMG}
+            strokeWidth={1.1}
+            strokeOpacity={0.9}
+            dot={false}
+            isAnimationActive={false}
+            connectNulls={false}
+            activeDot={{ r: 3, fill: COLOR_VMG, stroke: COLOR_TOOLTIP_BG, strokeWidth: 2 }}
           />
 
           {/* Note allenatore nella finestra: linea tratteggiata + cerchio

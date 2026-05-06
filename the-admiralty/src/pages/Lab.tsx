@@ -7,12 +7,15 @@ interface LabProps {
   // un cambio in una vista si riflette nell'altra.
   flyThreshold: number;
   onFlyThresholdChange: (v: number) => void;
+  // Fonte vento (true = stimata da GPS). Inoltrata a ManeuverFootprint che
+  // la usa nella legenda VMG del chart -20s/+40s come disclaimer.
+  isWindEstimated?: boolean;
 }
 
 // Pagina autonoma del Laboratorio Traiettorie. Riceve le sessioni gia' filtrate
 // dalla finestra temporale globale; il selettore atleta vive dentro
 // ManeuverFootprint perche' lavora sulla logica del catalogo di manovre.
-export default function Lab({ sessions, flyThreshold, onFlyThresholdChange }: LabProps) {
+export default function Lab({ sessions, flyThreshold, onFlyThresholdChange, isWindEstimated }: LabProps) {
   return (
     <div className="px-6 lg:px-12 py-8 max-w-[1500px] mx-auto w-full">
       <header className="pb-5">
@@ -31,6 +34,7 @@ export default function Lab({ sessions, flyThreshold, onFlyThresholdChange }: La
           sessions={sessions}
           flyThreshold={flyThreshold}
           onFlyThresholdChange={onFlyThresholdChange}
+          isWindEstimated={isWindEstimated}
         />
       </div>
     </div>
