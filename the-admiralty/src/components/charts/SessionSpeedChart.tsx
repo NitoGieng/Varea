@@ -29,6 +29,12 @@ interface Props {
   onChartClick?: (timestampSec: number, pixelX: number, pixelY: number) => void;
   // Click su un marker esistente: avvia il flusso di modifica.
   onNoteClick?: (note: CoachNote, pixelX: number, pixelY: number) => void;
+  // Modalita' di formattazione dell'asse X e del tooltip:
+  //   false (default) = "Relativo" — secondi dall'inizio sessione (HH:MM:SS o MM:SS).
+  //   true            = "Orologio" — orario assoluto del browser (HH:MM:SS) calcolato
+  //                     da sessionStartMs + t*1000.
+  // Allineato al toggle "Relativo / Orologio" della FilterBar (Dashboard).
+  useAbsoluteTime?: boolean;
 }
 
 const COLOR_LINE = '#c9a169';
@@ -39,8 +45,8 @@ const COLOR_TOOLTIP_BORDER = 'rgba(201, 161, 105, 0.3)';
 const COLOR_AXIS_DIM = '#5e6b80';
 const COLOR_NOTE = '#c9a169';
 
-// Format secondi → HH:MM:SS o MM:SS in base alla durata totale.
-function formatTickFactory(maxSec: number) {
+// Format secondi → HH:MM:SS o MM:SS in base alla durata totale (modalita' Relativo).
+function formatRelativeTickFactory(maxSec: number) {
   const showHours = maxSec >= 3600;
   return (v: number) => {
     if (!Number.isFinite(v)) return '';
@@ -52,6 +58,21 @@ function formatTickFactory(maxSec: number) {
       return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
     }
     return `${m}:${String(s).padStart(2, '0')}`;
+  };
+}
+
+// Format secondi-da-inizio-sessione → orario di parete HH:MM:SS nel fuso del
+// browser (modalita' Orologio). Coerente con formatNoteTimestamp del
+// Dashboard, cosi' i tick dell'asse X parlano la stessa lingua dei timestamp
+// delle note quando il toggle e' su "Orologio".
+function formatAbsoluteTickFactory(sessionStartMs: number) {
+  return (v: number) => {
+    if (!Number.isFinite(v) || !Number.isFinite(sessionStartMs)) return '';
+    const d = new Date(sessionStartMs + Math.round(v) * 1000);
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    const ss = String(d.getSeconds()).padStart(2, '0');
+    return `${hh}:${mm}:${ss}`;
   };
 }
 
@@ -94,6 +115,7 @@ export default function SessionSpeedChart({
   height = 220,
   onChartClick,
   onNoteClick,
+  useAbsoluteTime = false,
 }: Props) {
   const { chartData, minSec, maxSec } = useMemo(() => {
     if (!track || track.length === 0 || !Number.isFinite(sessionStartMs)) {
@@ -126,7 +148,15 @@ export default function SessionSpeedChart({
     return notes.filter(n => n.timestampSec >= minSec && n.timestampSec <= maxSec);
   }, [notes, minSec, maxSec]);
 
-  const formatTick = useMemo(() => formatTickFactory(maxSec), [maxSec]);
+  // Tick formatter switchato dal toggle "Relativo / Orologio". In modalita'
+  // Orologio richiede sessionStartMs valido; se manca (sessione non ancora
+  // inizializzata) cade sul formatter relativo per non mostrare "NaN".
+  const formatTick = useMemo(() => {
+    if (useAbsoluteTime && Number.isFinite(sessionStartMs)) {
+      return formatAbsoluteTickFactory(sessionStartMs);
+    }
+    return formatRelativeTickFactory(maxSec);
+  }, [useAbsoluteTime, sessionStartMs, maxSec]);
 
   if (chartData.length === 0) {
     return (

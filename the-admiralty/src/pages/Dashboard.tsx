@@ -1015,6 +1015,7 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
                         height={240}
                         onChartClick={handleChartClickNote}
                         onNoteClick={handleNoteMarkerClickInChart}
+                        useAbsoluteTime={useAbsoluteTime}
                       />
                       {notePopup && notePopup.anchor === 'chart' && (
                         <NoteEditPopup
