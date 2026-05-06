@@ -1,9 +1,24 @@
 import ReactPlot from 'react-plotly.js';
+import { parseBackendTimestamp } from '../../utils/time';
 
 // react-plotly.js non fornisce tipi ufficiali stabili: il cast a any permette
 // l'accesso a .default in ambienti che lo wrappano (Vite SSR/CJS interop).
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const Plot = (ReactPlot as any).default || ReactPlot;
+
+// Orario assoluto HH:MM:SS nel fuso del browser (= fuso di regata per chi
+// rivede sessioni sul proprio device). Se il timestamp manca o e' invalido
+// torna stringa vuota: il chiamante decide come gestire l'assenza.
+function formatLocalClock(ts: string | undefined): string {
+  if (!ts) return '';
+  const ms = parseBackendTimestamp(ts);
+  if (!Number.isFinite(ms)) return '';
+  const d = new Date(ms);
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  const ss = String(d.getSeconds()).padStart(2, '0');
+  return `${hh}:${mm}:${ss}`;
+}
 
 // Punto minimo che la mappa sa consumare. Le proprieta' opzionali arricchiscono
 // il tooltip quando disponibili ma non sono richieste.
@@ -120,9 +135,15 @@ export default function TelemetryMap({
     const lats = pts.map(p => p.lat);
     const lons = pts.map(p => p.lon);
     const speeds = pts.map(p => p.sog_knots);
-    const hoverTexts = pts.map(p =>
-      `Speed: ${p.sog_knots.toFixed(1)} kts<br>TWA: ${(p.twa ?? 0).toFixed(0)}°<br>Sail: ${p.andatura ?? '—'}`
-    );
+    // Ordine voci hover: ORARIO assoluto in cima per dare contesto temporale
+    // immediato (l'allenatore correla con la timeline mentale della regata),
+    // seguito da SOG/TWA/andatura. Se il punto manca di timestamp, l'orario
+    // viene omesso invece di mostrare "—" che sarebbe confondente.
+    const hoverTexts = pts.map(p => {
+      const clock = formatLocalClock(p.timestamp);
+      const head = clock ? `ORARIO: ${clock}<br>` : '';
+      return `${head}Speed: ${p.sog_knots.toFixed(1)} kts<br>TWA: ${(p.twa ?? 0).toFixed(0)}°<br>Sail: ${p.andatura ?? '—'}`;
+    });
 
     // Trace base (line + markers heatmap + START + FINE). Indici fissi
     // 0,1,2,3: usati per dispatchare l'onClick.
@@ -254,11 +275,13 @@ export default function TelemetryMap({
   for (const l of decimated) {
     const lats = l.points.map(p => p.lat);
     const lons = l.points.map(p => p.lon);
-    const hoverTexts = l.points.map(p =>
-      `${l.label}<br>SOG: ${p.sog_knots.toFixed(1)} kts`
-      + (p.twa != null ? `<br>TWA: ${p.twa.toFixed(0)}°` : '')
-      + (p.andatura ? `<br>Sail: ${p.andatura}` : '')
-    );
+    const hoverTexts = l.points.map(p => {
+      const clock = formatLocalClock(p.timestamp);
+      const head = clock ? `ORARIO: ${clock}<br>` : '';
+      return `${head}${l.label}<br>SOG: ${p.sog_knots.toFixed(1)} kts`
+        + (p.twa != null ? `<br>TWA: ${p.twa.toFixed(0)}°` : '')
+        + (p.andatura ? `<br>Sail: ${p.andatura}` : '');
+    });
     traces.push({
       type: 'scattermap', lat: lats, lon: lons, mode: 'lines',
       line: { width: 2, color: l.color },
