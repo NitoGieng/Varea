@@ -418,17 +418,50 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
     });
   }, [sessions, debouncedRange]);
 
+  // Frequenza adattiva del tracciato in mappa Panoramica: dipende dalla
+  // durata del filtro temporale (clock), NON dalla durata totale della
+  // sessione. Soglie scelte per leggibilita' visiva senza saturare Plotly:
+  //   < 1h    → 1 Hz   (1 punto/s,  max ~3600 punti)
+  //   1h - 3h → 0.2 Hz (1 punto/5s, max ~2160 punti)
+  //   > 3h    → 0.1 Hz (1 punto/10s, max ~3600 punti su 10h)
+  // Aggiornata reattivamente da debouncedRange come il resto della dashboard.
+  const mapStepSec = useMemo(() => {
+    if (!debouncedRange) return 1;
+    const durSec = Math.abs(debouncedRange.endMs - debouncedRange.startMs) / 1000;
+    if (durSec < 3600) return 1;
+    if (durSec < 10800) return 5;
+    return 10;
+  }, [debouncedRange]);
+
+  const mapFreqLabel = mapStepSec === 1 ? '1 Hz' : mapStepSec === 5 ? '0.2 Hz' : '0.1 Hz';
+
   const MapMemoized = useMemo(() => {
     if (visibleFilteredSessions.length === 0) return null;
     const layers = visibleFilteredSessions.map(s => {
-      const useHighRes = s.durationSecs <= 3600 && s.highResTrack.length > 0;
+      // Sorgente preferita: highResTrack (1 Hz nativo, garantito da api.py).
+      // Subsampling per indice uniforme: highResTrack ha esattamente 1
+      // sample/sec quindi step in array == mapStepSec. Fallback difensivo
+      // su trackData (0.2 Hz) se highResTrack mancasse: lo step in array
+      // diventa max(1, round(mapStepSec/5)) per non sovracampionare oltre
+      // la sorgente.
+      const useHighRes = s.highResTrack.length > 0;
+      const source = useHighRes ? s.highResTrack : s.trackData;
+      const arrayStep = useHighRes ? mapStepSec : Math.max(1, Math.round(mapStepSec / 5));
+      const points = arrayStep === 1 ? source : source.filter((_, i) => i % arrayStep === 0);
       return {
         id: s.id,
         label: s.label,
         color: s.color,
-        points: useHighRes ? s.highResTrack : s.trackData,
+        points,
       };
     });
+    // Il TelemetryMap ha un cap interno di sicurezza (DEFAULT_MAX_POINTS) che
+    // applicherebbe una decimazione SOPRA la nostra: vanificherebbe la
+    // frequenza scelta dall'utente. Passiamo un budget pari ai punti reali
+    // (con piccolo margine) cosi' la decimazione interna resta inerte salvo
+    // scenari estremi (>1200 punti totali = molti atleti su finestre lunghe).
+    const totalPts = layers.reduce((a, l) => a + l.points.length, 0);
+    const dynamicMaxPoints = Math.max(1200, totalPts + 200);
     const colorMode: 'speed' | 'session' = visibleFilteredSessions.length === 1 ? 'speed' : 'session';
     // Note allenatore: solo in modalita' speed (single session). I callback
     // sono passati anche con array vuoto cosi' il click su un punto del
@@ -437,13 +470,14 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
       <TelemetryMap
         layers={layers}
         colorMode={colorMode}
+        maxPoints={dynamicMaxPoints}
         noteMarkers={colorMode === 'speed' ? noteMarkers : undefined}
         highlightedNoteId={highlightedNoteId}
         onTrackClick={colorMode === 'speed' ? handleMapTrackClick : undefined}
         onNoteMarkerClick={colorMode === 'speed' ? handleMapNoteMarkerClick : undefined}
       />
     );
-  }, [visibleFilteredSessions, noteMarkers, highlightedNoteId, handleMapTrackClick, handleMapNoteMarkerClick]);
+  }, [visibleFilteredSessions, mapStepSec, noteMarkers, highlightedNoteId, handleMapTrackClick, handleMapNoteMarkerClick]);
 
   const maneuversSessions = useMemo(() => {
     return visibleFilteredSessions.map(s => ({
@@ -1073,6 +1107,15 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
                 </div>
                 <div ref={overviewMapContainerRef} className="relative h-[600px] w-full bg-bg">
                   {MapMemoized}
+                  {/* Badge frequenza adattiva: informa l'allenatore della
+                      densita' di punti effettivamente renderizzata, utile
+                      quando si confronta dettaglio fra finestre temporali
+                      diverse. Posizionato in basso a sinistra cosi' non
+                      copre la colorbar SOG (lato destro) ne' i marker
+                      START/FINE (vicini al primo e ultimo punto). */}
+                  <div className="absolute bottom-3 left-3 z-10 px-2 py-1 bg-bg/80 border border-border rounded font-mono tabular text-eyebrow text-ink-muted pointer-events-none">
+                    {mapFreqLabel}
+                  </div>
                   {notePopup && notePopup.anchor === 'map' && (
                     <NoteEditPopup
                       anchorX={notePopup.anchorX}
