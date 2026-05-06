@@ -46,25 +46,51 @@ export default function Sidebar({ currentView, onNavigate }: Props) {
       initial={false}
       animate={{ width: isHovered ? 240 : 56 }}
       transition={widthSpring}
-      className="fixed left-0 top-0 bottom-0 z-50 bg-surface-1 border-r border-border overflow-hidden flex flex-col"
+      // Gradient cockpit dall'alto: il navy si scurisce verso il basso e il
+      // border-right resta il filo bluastro condiviso col resto della UI.
+      className="fixed left-0 top-0 bottom-0 z-50 overflow-hidden flex flex-col"
+      style={{
+        background: 'linear-gradient(180deg, #061529 0%, #04101f 100%)',
+        borderRight: '1px solid var(--line)',
+      }}
     >
-      <div className="h-14 flex items-center px-4 border-b border-border shrink-0">
-        <span className="font-serif italic text-2xl text-gold leading-none w-6 text-center shrink-0">V</span>
+      {/* BRAND — V serif italic gold + sub-label "VAREA" mono. La sub-label
+          appare solo in stato espanso (al pari delle nav label). */}
+      <div
+        className="h-14 flex items-center px-4 shrink-0"
+        style={{ borderBottom: '1px solid var(--line)' }}
+      >
+        <span
+          className="font-serif italic leading-none w-6 text-center shrink-0"
+          style={{ color: 'rgb(var(--gold))', fontSize: '1.65rem' }}
+        >
+          V
+        </span>
         <AnimatePresence>
           {isHovered && (
-            <motion.span
+            <motion.div
               initial={{ opacity: 0, x: -8 }}
               animate={{ opacity: 1, x: 0, transition: { delay: 0.06, type: 'spring', stiffness: 320, damping: 28 } }}
               exit={{ opacity: 0, x: -8, transition: { duration: 0.12 } }}
-              className="ml-3 font-serif italic text-base text-ink whitespace-nowrap"
+              className="ml-3 flex flex-col leading-none whitespace-nowrap"
             >
-              Varea
-            </motion.span>
+              <span className="font-serif italic text-base text-ink">Varea</span>
+              <span
+                className="font-mono uppercase mt-0.5"
+                style={{
+                  fontSize: '7px',
+                  letterSpacing: '0.22em',
+                  color: 'rgb(var(--ink-4))',
+                }}
+              >
+                Telemetry · Cockpit
+              </span>
+            </motion.div>
           )}
         </AnimatePresence>
       </div>
 
-      <nav className="py-2 flex-1">
+      <nav className="py-3 flex-1">
         {items.map((item, i) => {
           const active = currentView === item.id;
           return (
@@ -74,22 +100,40 @@ export default function Sidebar({ currentView, onNavigate }: Props) {
               whileHover={{ x: 2 }}
               whileTap={{ x: 0 }}
               transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-              className={`w-full h-12 flex items-center px-4 relative ${
-                active ? 'text-gold' : 'text-ink-2 hover:text-ink'
-              }`}
+              className="w-full flex items-center px-2.5 py-1 mb-0.5 relative"
             >
+              {/* Barra verticale gold sul bordo sinistro per lo stato active.
+                  Position absolute con left:-2px cosi' tocca esattamente il
+                  filo della sidebar (border-right). */}
               {active && (
                 <motion.span
                   layoutId="varea-sidebar-active"
-                  className="absolute left-0 top-2 bottom-2 w-0.5 bg-gold"
+                  className="absolute top-1 bottom-1 w-0.5"
+                  style={{
+                    left: '-1px',
+                    background: 'rgb(var(--gold))',
+                    boxShadow: '0 0 8px rgba(212, 175, 110, 0.55)',
+                  }}
                   transition={indicatorSpring}
                 />
               )}
+              {/* Tile 36x36 cockpit: bordo sottile + bg appena visibile in
+                  active, completamente trasparente altrimenti. */}
               <motion.span
-                whileHover={{ scale: 1.06, rotate: active ? 0 : 4 }}
+                whileHover={{ scale: 1.04, rotate: active ? 0 : 4 }}
                 whileTap={{ scale: 0.96 }}
                 transition={{ type: 'spring', stiffness: 420, damping: 22 }}
-                className="w-6 h-6 flex items-center justify-center shrink-0"
+                className="flex items-center justify-center shrink-0 transition-colors duration-220 ease-varea"
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 6,
+                  border: active
+                    ? '1px solid rgba(212, 175, 110, 0.18)'
+                    : '1px solid transparent',
+                  background: active ? 'rgba(212, 175, 110, 0.06)' : 'transparent',
+                  color: active ? 'rgb(var(--gold))' : 'rgb(var(--ink-2))',
+                }}
               >
                 <item.Icon />
               </motion.span>
@@ -101,7 +145,13 @@ export default function Sidebar({ currentView, onNavigate }: Props) {
                     initial="closed"
                     animate="open"
                     exit={{ opacity: 0, x: -8, transition: { duration: 0.12 } }}
-                    className="ml-3 text-eyebrow uppercase tracking-eyebrow whitespace-nowrap"
+                    className="ml-3 font-mono whitespace-nowrap"
+                    style={{
+                      fontSize: '11px',
+                      letterSpacing: '0.16em',
+                      textTransform: 'uppercase',
+                      color: active ? 'rgb(var(--gold))' : 'rgb(var(--ink-2))',
+                    }}
                   >
                     {item.label}
                   </motion.span>
@@ -112,18 +162,13 @@ export default function Sidebar({ currentView, onNavigate }: Props) {
         })}
       </nav>
 
-      <div className="border-t border-border h-14 flex items-center px-4 shrink-0">
-        <motion.button
-          whileHover={{ scale: 1.08, rotate: 14 }}
-          whileTap={{ scale: 0.94 }}
-          transition={{ type: 'spring', stiffness: 380, damping: 20 }}
-          onClick={() => document.documentElement.classList.toggle('dark')}
-          className="w-6 h-6 flex items-center justify-center text-ink-muted hover:text-gold shrink-0"
-          title="Inverti tema"
-          aria-label="Toggle tema"
-        >
-          <ThemeIcon />
-        </motion.button>
+      {/* FOOTER — LED verde "live" a sinistra, toggle tema (icona luna) a
+          destra. Il LED comunica che la dashboard e' connessa/attiva. */}
+      <div
+        className="h-14 flex items-center px-4 shrink-0 gap-3"
+        style={{ borderTop: '1px solid var(--line)' }}
+      >
+        <span className="cockpit-led shrink-0" aria-hidden />
         <AnimatePresence>
           {isHovered && (
             <motion.span
@@ -131,15 +176,40 @@ export default function Sidebar({ currentView, onNavigate }: Props) {
               animate={{
                 opacity: 1,
                 x: 0,
-                transition: { delay: 0.05 + items.length * 0.04, type: 'spring', stiffness: 320, damping: 28 },
+                transition: { delay: 0.05, type: 'spring', stiffness: 320, damping: 28 },
               }}
               exit={{ opacity: 0, x: -8, transition: { duration: 0.12 } }}
-              className="ml-3 text-eyebrow uppercase tracking-eyebrow text-ink-muted whitespace-nowrap"
+              className="font-mono whitespace-nowrap flex-1"
+              style={{
+                fontSize: '10px',
+                letterSpacing: '0.18em',
+                textTransform: 'uppercase',
+                color: 'rgb(var(--ink-3))',
+              }}
             >
-              Tema
+              Online
             </motion.span>
           )}
         </AnimatePresence>
+        <motion.button
+          whileHover={{ scale: 1.08, rotate: 14 }}
+          whileTap={{ scale: 0.94 }}
+          transition={{ type: 'spring', stiffness: 380, damping: 20 }}
+          onClick={() => document.documentElement.classList.toggle('dark')}
+          className="flex items-center justify-center shrink-0 transition-colors duration-220 ease-varea"
+          style={{
+            width: 28,
+            height: 28,
+            borderRadius: 6,
+            color: 'rgb(var(--ink-3))',
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.color = 'rgb(var(--gold))')}
+          onMouseLeave={(e) => (e.currentTarget.style.color = 'rgb(var(--ink-3))')}
+          title="Inverti tema"
+          aria-label="Toggle tema"
+        >
+          <ThemeIcon />
+        </motion.button>
       </div>
     </motion.aside>
   );

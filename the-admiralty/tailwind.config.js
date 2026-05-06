@@ -36,9 +36,11 @@ export default {
         surface: '#ffffff',
       },
       fontFamily: {
-        serif: ['"Playfair Display"', 'Georgia', 'serif'],
-        sans: ['"Inter Tight"', 'Inter', 'system-ui', 'sans-serif'],
-        mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
+        // DM Serif Display in cima per il look cockpit/avionics; Playfair
+        // resta come fallback per sessioni offline/cache vecchia.
+        serif: ['"DM Serif Display"', '"Playfair Display"', 'Georgia', 'serif'],
+        sans: ['Inter', '"Inter Tight"', 'system-ui', 'sans-serif'],
+        mono: ['"JetBrains Mono"', 'ui-monospace', '"SF Mono"', 'Consolas', 'monospace'],
       },
       fontSize: {
         eyebrow: ['0.6875rem', { lineHeight: '0.875rem', letterSpacing: '0.18em', fontWeight: '500' }],

@@ -13,6 +13,7 @@ import TwdSparkline from '../components/charts/TwdSparkline';
 import SessionSpeedChart from '../components/charts/SessionSpeedChart';
 import NotesPanel from '../components/NotesPanel';
 import NoteEditPopup from '../components/NoteEditPopup';
+import StatusStrip from '../components/StatusStrip';
 import { parseBackendTimestamp } from '../utils/time';
 import { DEFAULT_FLY_THRESHOLD } from '../utils/foiling';
 import { generateSessionReport } from '../utils/pdfExport';
@@ -860,6 +861,10 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
           hasSession={!!telemetryData}
           onUpload={handleFilesUpload}
           isUploading={isUploading}
+          // Telltale info: nome del file della sessione attiva. Mostrato
+          // a destra della breadcrumb in stile cockpit (mono 10px) insieme
+          // alle info di campionamento e fix GPS.
+          sessionFileName={telemetryData?.session_info.file_name}
         />
 
         <SessionsBar
@@ -889,6 +894,20 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
             setEndAbsolute={setEndAbsolute}
           />
         )}
+
+        {/* Strip cockpit con metriche di sessione sempre visibili.
+            Il primo punto del tracciato fornisce le coordinate di riferimento
+            (lat/lon di sessione). Tutto il resto e' tirato dallo stato
+            sessione gia' calcolato dal backend. */}
+        <StatusStrip
+          hasSession={!!telemetryData}
+          durationSeconds={telemetryData?.session_info.duration_seconds}
+          distanceNm={telemetryData?.session_info.distance_nm}
+          twdDeg={telemetryData?.environment.computed_twd_deg}
+          isEstimated={telemetryData?.environment.is_estimated}
+          lat={telemetryData?.track_data?.[0]?.lat}
+          lon={telemetryData?.track_data?.[0]?.lon}
+        />
 
         <main className="flex-1 w-full">
           {currentView === 'overview' && (
@@ -1158,7 +1177,6 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
                       peak={segmentMetrics.vmgBolinaMax}
                       sogAvg={segmentMetrics.sogBolinaAvgNum}
                       sogLabel="Vel. media bolina"
-                      isEstimated={environment.is_estimated}
                     />
                     <VmgCard
                       label="VMG Lasco"
@@ -1166,7 +1184,6 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
                       peak={null}
                       sogAvg={segmentMetrics.sogLascoAvgNum}
                       sogLabel="Vel. media lasco"
-                      isEstimated={environment.is_estimated}
                     />
                   </div>
                 </section>
@@ -1274,9 +1291,12 @@ interface TopbarProps {
   hasSession: boolean;
   onUpload: (files: FileList) => void;
   isUploading: boolean;
+  // Telltale info: nome del file della sessione attiva. Quando assente
+  // i tre indicatori (FIT/SAMPLE/GPS FIX) non vengono renderizzati.
+  sessionFileName?: string;
 }
 
-function Topbar({ viewLabel, onExportPDF, onExportJSON, onExportCSV, hasSession, onUpload, isUploading }: TopbarProps) {
+function Topbar({ viewLabel, onExportPDF, onExportJSON, onExportCSV, hasSession, onUpload, isUploading, sessionFileName }: TopbarProps) {
   // Ordine voci dropdown: PDF in cima (formato narrativo, target principale
   // per l'allenatore), JSON sotto (dump strutturato per analisi esterna),
   // CSV in coda e solo nella vista Manovre dove i filtri locali definiscono
@@ -1289,19 +1309,88 @@ function Topbar({ viewLabel, onExportPDF, onExportJSON, onExportCSV, hasSession,
     exportItems.push({ label: 'Esporta CSV', onClick: onExportCSV });
   }
 
+  // Stile mono comune ai tre telltale: colore var(--ink-3), uppercase con
+  // letter-spacing wide. Il primo non ha bordo sinistro.
+  const telltaleBase: React.CSSProperties = {
+    fontFamily: 'var(--mono)',
+    fontSize: 10,
+    letterSpacing: '0.16em',
+    textTransform: 'uppercase',
+    color: 'rgb(var(--ink-3))',
+    paddingLeft: 18,
+    paddingRight: 0,
+    borderLeft: '1px solid var(--line)',
+    whiteSpace: 'nowrap',
+  };
+
   return (
-    <header className="sticky top-0 z-40 h-14 bg-bg/85 backdrop-blur border-b border-border flex items-center px-6 lg:px-12">
-      <div className="flex-1 flex items-center gap-3 min-w-0">
-        <span className="eyebrow">Varea · Telemetry</span>
-        <span className="text-ink-muted">/</span>
-        <span className="font-serif italic text-base text-ink truncate">{viewLabel}</span>
+    <header
+      className="sticky top-0 z-40 h-14 backdrop-blur flex items-center px-6 lg:px-12"
+      style={{
+        background: 'rgba(4, 16, 31, 0.85)',
+        borderBottom: '1px solid var(--line)',
+      }}
+    >
+      <div className="flex-1 flex items-center gap-3 min-w-0 overflow-hidden">
+        {/* Breadcrumb mono uppercase + nome schermata serif italic. Lo
+            stile e' iscritto direttamente perche' i token del cockpit
+            (mono 11px, letterspacing 0.12em) non hanno utility tailwind
+            esistenti coerenti. */}
+        <span
+          style={{
+            fontFamily: 'var(--mono)',
+            fontSize: 11,
+            letterSpacing: '0.12em',
+            textTransform: 'uppercase',
+            color: 'rgb(var(--ink-3))',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          Varea · Telemetry
+        </span>
+        <span style={{ color: 'rgb(var(--ink-4))' }}>/</span>
+        <span
+          className="font-serif italic truncate"
+          style={{ fontSize: 17, color: 'rgb(var(--ink))', lineHeight: 1 }}
+        >
+          {viewLabel}
+        </span>
+
+        {/* Telltale a destra della breadcrumb. Visibili solo con sessione
+            caricata; il filo sinistro li separa dal nome della schermata. */}
+        {sessionFileName && (
+          <div className="flex items-center gap-0 ml-4 min-w-0 overflow-hidden">
+            <span style={telltaleBase} className="truncate">
+              FIT · {sessionFileName}
+            </span>
+            <span style={telltaleBase}>SAMPLE 1Hz</span>
+            <span style={telltaleBase}>GPS FIX 3D</span>
+          </div>
+        )}
       </div>
-      <div className="flex items-center gap-2 shrink-0">
+
+      <div className="flex items-center gap-2 shrink-0 ml-3">
         <ExportMenu items={exportItems} disabled={!hasSession} />
+        {/* Bottone primario "+ CARICA .FIT": gold gradient + glow.
+            Stile cockpit avionics — il colore testo navy molto scuro per
+            contrasto AAA su gold, peso 600. */}
         <label
-          className={`text-eyebrow uppercase tracking-eyebrow bg-gold text-[#0a1428] hover:bg-gold/85 rounded-md px-4 py-2 cursor-pointer transition-colors duration-220 ease-varea font-semibold ${
+          className={`cursor-pointer transition-all duration-220 ease-varea ${
             isUploading ? 'opacity-70 cursor-wait' : ''
           }`}
+          style={{
+            fontFamily: 'var(--mono)',
+            fontSize: 11,
+            letterSpacing: '0.16em',
+            textTransform: 'uppercase',
+            fontWeight: 600,
+            color: '#1a1407',
+            background: 'linear-gradient(180deg, #e3c180 0%, #c79b56 100%)',
+            border: '1px solid rgba(255, 255, 255, 0.18)',
+            borderRadius: 6,
+            padding: '8px 14px',
+            boxShadow: '0 0 14px rgba(212, 175, 110, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.25)',
+          }}
         >
           {isUploading ? 'Caricamento…' : '+ Carica .FIT'}
           <input
@@ -1368,11 +1457,30 @@ function ExportMenu({ items, disabled }: ExportMenuProps) {
         disabled={disabled}
         aria-haspopup="menu"
         aria-expanded={open}
-        className={`text-eyebrow uppercase tracking-eyebrow border rounded-md px-3 py-2 transition-colors duration-220 ease-varea flex items-center gap-1.5 ${
-          disabled
-            ? 'border-border text-ink-muted opacity-50 cursor-not-allowed'
-            : 'border-gold text-gold hover:bg-gold hover:text-[#0a1428] cursor-pointer'
-        }`}
+        className="transition-all duration-220 ease-varea flex items-center gap-1.5"
+        style={{
+          fontFamily: 'var(--mono)',
+          fontSize: 11,
+          letterSpacing: '0.16em',
+          textTransform: 'uppercase',
+          padding: '8px 14px',
+          borderRadius: 6,
+          border: '1px solid var(--line-2)',
+          background: 'transparent',
+          color: disabled ? 'rgb(var(--ink-4))' : 'rgb(var(--ink-2))',
+          opacity: disabled ? 0.5 : 1,
+          cursor: disabled ? 'not-allowed' : 'pointer',
+        }}
+        onMouseEnter={(e) => {
+          if (disabled) return;
+          e.currentTarget.style.borderColor = 'var(--line-hot)';
+          e.currentTarget.style.color = 'rgb(var(--gold))';
+        }}
+        onMouseLeave={(e) => {
+          if (disabled) return;
+          e.currentTarget.style.borderColor = 'var(--line-2)';
+          e.currentTarget.style.color = 'rgb(var(--ink-2))';
+        }}
       >
         Esporta
         <svg className={`w-3 h-3 transform transition-transform duration-220 ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
@@ -1380,13 +1488,38 @@ function ExportMenu({ items, disabled }: ExportMenuProps) {
         </svg>
       </button>
       {open && !disabled && (
-        <div role="menu" className="absolute top-full right-0 mt-1 min-w-[160px] bg-surface-1 border border-border rounded-md shadow-card-md z-50 overflow-hidden">
+        <div
+          role="menu"
+          className="absolute top-full right-0 mt-1 min-w-[180px] z-50 overflow-hidden"
+          style={{
+            background: 'rgb(var(--surface-1))',
+            border: '1px solid var(--line-2)',
+            borderRadius: 6,
+            boxShadow: '0 8px 24px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(140, 180, 230, 0.04)',
+          }}
+        >
           {items.map((item, i) => (
             <button
               key={i}
               role="menuitem"
               onClick={() => { item.onClick(); setOpen(false); }}
-              className="w-full text-left px-4 py-2 text-eyebrow uppercase tracking-eyebrow text-ink-2 hover:bg-surface-2 hover:text-gold transition-colors duration-220"
+              className="w-full text-left transition-colors duration-220"
+              style={{
+                fontFamily: 'var(--mono)',
+                fontSize: 11,
+                letterSpacing: '0.16em',
+                textTransform: 'uppercase',
+                color: 'rgb(var(--ink-2))',
+                padding: '10px 14px',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'rgba(212, 175, 110, 0.06)';
+                e.currentTarget.style.color = 'rgb(var(--gold))';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent';
+                e.currentTarget.style.color = 'rgb(var(--ink-2))';
+              }}
             >
               {item.label}
             </button>
@@ -1698,24 +1831,23 @@ function PerformanceCard({
 
 // Card VMG dedicata: stessa famiglia visiva di PerformanceCard ma senza la
 // percentuale di tempo (la VMG non e' una "permanenza" ma un'efficienza).
-// Aggiunge una riga di confronto Vel.media -> VMG che educa l'allenatore
-// alla differenza fra "quanto vai" e "quanto guadagni verso vento", e una
-// micropill in basso che dichiara la fonte del vento usato per il calcolo
-// (Stormglass / GPS): la qualita' della VMG dipende direttamente da quella.
+// La riga di confronto sotto il valore mostra la velocita' media della
+// stessa andatura, cosi' l'allenatore vede a colpo d'occhio quanto della
+// SOG si traduce in guadagno verso vento. La fonte del vento (Stormglass
+// vs stimata) e' gia' esposta dal pannello vento in cima alla Panoramica:
+// non la ripetiamo qui per non introdurre rumore visivo.
 function VmgCard({
   label,
   value,
   peak,
   sogAvg,
   sogLabel,
-  isEstimated,
 }: {
   label: string;
   value: number | null;
   peak: number | null;
   sogAvg: number | null;
   sogLabel: string;
-  isEstimated: boolean;
 }) {
   const display = value != null && Number.isFinite(value) ? value.toFixed(1) : 'n/d';
   const peakDisplay = peak != null && Number.isFinite(peak) ? peak.toFixed(1) : null;
@@ -1734,23 +1866,10 @@ function VmgCard({
       {sogDisplay != null && value != null && Number.isFinite(value) ? (
         <p className="text-caption text-ink-2 mt-2 leading-snug">
           {sogLabel}: <span className="font-mono tabular text-ink">{sogDisplay}</span> kts
-          {' '}<span className="text-ink-muted">→</span>{' '}
-          VMG effettiva: <span className="font-mono tabular text-ink">{display}</span> kts
         </p>
       ) : (
         <p className="text-caption text-ink-muted mt-2 italic">Dati insufficienti per il confronto.</p>
       )}
-      <div className="mt-3 inline-flex items-center gap-1.5">
-        <span className={`w-1.5 h-1.5 rounded-full ${isEstimated ? 'bg-amber' : 'bg-sage'}`} />
-        <span
-          className={`text-eyebrow uppercase tracking-eyebrow ${isEstimated ? 'text-amber' : 'text-sage'}`}
-          title={isEstimated
-            ? 'VMG calcolata su vento dedotto dalle traiettorie GPS'
-            : 'VMG calcolata su vento osservato da Stormglass'}
-        >
-          {isEstimated ? 'Vento stimato dal GPS' : 'Vento da Stormglass'}
-        </span>
-      </div>
     </div>
   );
 }

@@ -4,7 +4,8 @@
 
 @layer base {
   :root {
-    /* Light theme — paper */
+    /* Light theme — paper. Mantenuto per chi preferisce il chiaro;
+       il default dell'app e' .dark (vedi index.html). */
     --bg: 248 247 245;
     --surface-1: 255 255 255;
     --surface-2: 251 250 247;
@@ -23,30 +24,63 @@
     --shadow-md: 0 1px 3px rgba(10, 22, 40, 0.06), 0 4px 12px rgba(10, 22, 40, 0.04);
 
     --ease-varea: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+    /* Token cockpit/avionics aggiunti — usati come fallback anche in light. */
+    --ink-3: 107 125 150;
+    --ink-4: 62 82 110;
+    --gold-2: 240 201 122;
+    --gold-dim: 138 115 68;
+    --cyan: 111 207 209;
+    --green: 110 196 139;
+    --red: 217 122 108;
+    --violet: 138 156 209;
+    --line: rgba(10, 22, 40, 0.10);
+    --line-2: rgba(10, 22, 40, 0.18);
+    --line-hot: rgba(168, 127, 71, 0.35);
+    --radius-cockpit: 4px;
+    --radius-lg: 6px;
+    --mono: "JetBrains Mono", ui-monospace, "SF Mono", Consolas, monospace;
+    --sans: "Inter", "Inter Tight", -apple-system, system-ui, sans-serif;
+    --serif: "DM Serif Display", "Playfair Display", Georgia, serif;
   }
 
   .dark {
-    /* Dark theme — cockpit notturno */
-    --bg: 5 13 26;
-    --surface-1: 10 22 40;
-    --surface-2: 17 32 58;
-    --border: 28 46 74;
-    --ink: 245 241 230;       /* avorio caldo, non bianco — toglie "hacker mode" */
-    --ink-2: 168 179 196;
-    --ink-muted: 94 107 128;
-    --gold: 201 161 105;
-    --gold-deep: 168 127 71;
-    --brass: 232 206 160;
-    --sage: 127 168 133;
+    /* Dark theme — cockpit/avionics. Palette navy notturno con accent
+       gold/oro per dare profondita' e isolare le metriche di prima
+       classe; il filo bluastro traslucido sostituisce il border solido. */
+    --bg: 4 16 31;          /* #04101f */
+    --surface-1: 10 26 46;  /* #0a1a2e — panel */
+    --surface-2: 15 34 56;  /* #0f2238 — panel-2 */
+    --border: 18 32 51;     /* equivalente a rgba(140,180,230,0.10) su bg */
+    --ink: 232 238 247;     /* #e8eef7 — bianco freddo, tipo cruscotto */
+    --ink-2: 170 184 204;   /* #aab8cc */
+    --ink-muted: 107 125 150;/* #6b7d96 — alias di --ink-3 */
+    --gold: 212 175 110;    /* #d4af6e */
+    --gold-deep: 138 115 68;/* #8a7344 — alias di --gold-dim */
+    --brass: 240 201 122;   /* #f0c97a — alias di --gold-2 */
+    --sage: 110 196 139;    /* #6ec48b — alias di --green */
     --amber: 212 162 76;
-    --terra: 201 116 98;
+    --terra: 217 122 108;   /* #d97a6c — alias di --red */
 
     --shadow-sm: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 1px 2px rgba(0, 0, 0, 0.5);
-    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(201, 161, 105, 0.08);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(212, 175, 110, 0.08);
+
+    /* Token cockpit dedicati: usati direttamente via var(--name). */
+    --ink-3: 107 125 150;
+    --ink-4: 62 82 110;
+    --gold-2: 240 201 122;
+    --gold-dim: 138 115 68;
+    --cyan: 111 207 209;
+    --green: 110 196 139;
+    --red: 217 122 108;
+    --violet: 138 156 209;
+    --line: rgba(140, 180, 230, 0.10);
+    --line-2: rgba(140, 180, 230, 0.18);
+    --line-hot: rgba(212, 175, 110, 0.35);
   }
 
   html {
-    font-family: 'Inter Tight', system-ui, sans-serif;
+    font-family: var(--sans);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
@@ -79,5 +113,24 @@
   /* Eyebrow uppercase — label di sezione */
   .eyebrow {
     @apply text-eyebrow uppercase text-ink-muted;
+  }
+
+  /* LED animato: cerchio piccolo con glow pulsante. Usato in StatusStrip
+     e nel footer della Rail. Il colore default e' verde (vivo) ma puo'
+     essere sovrascritto inline (--led-color) per varianti amber/red. */
+  .cockpit-led {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--led-color, rgb(var(--green)));
+    box-shadow: 0 0 6px var(--led-color, rgb(var(--green))),
+                0 0 1px rgba(255, 255, 255, 0.3) inset;
+    animation: cockpit-led-pulse 2.4s ease-in-out infinite;
+    flex-shrink: 0;
+  }
+
+  @keyframes cockpit-led-pulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.55; }
   }
 }
