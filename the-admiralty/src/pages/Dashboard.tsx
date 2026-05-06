@@ -336,6 +336,32 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
       return (pts.length / totalSamples) * 100;
     };
     const periodHours = Math.max(0, (filterEndEpoch - filterStartEpoch) / 3_600_000);
+
+    // SOG di picco e medio sul segmento filtrato. Preferiamo l'high-res
+    // (1 Hz) per il picco — il decimato a 5s puo' saltare il singolo
+    // istante di velocita' massima — e per la media usiamo la stessa
+    // sorgente per coerenza fra i due numeri. Fallback al track decimato
+    // quando l'high-res non e' disponibile (sessioni > 1h o legacy).
+    const sogSource = segHighRes.length > 0 ? segHighRes : segTrack;
+    let sogMax: number | null = null;
+    let sogAvg: number | null = null;
+    if (sogSource.length > 0) {
+      let sum = 0;
+      let max = -Infinity;
+      let count = 0;
+      for (const p of sogSource) {
+        const v = Number(p.sog_knots);
+        if (!Number.isFinite(v)) continue;
+        sum += v;
+        if (v > max) max = v;
+        count += 1;
+      }
+      if (count > 0) {
+        sogMax = max;
+        sogAvg = sum / count;
+      }
+    }
+
     return {
       virate,
       strambate,
@@ -349,6 +375,8 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
       filteredManeuvers: segManeuvers,
       filteredTrack: segTrack,
       filteredHighRes: segHighRes,
+      sogMax,
+      sogAvg,
     };
   }, [telemetryData, debouncedRange]);
 
@@ -874,18 +902,26 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
                 </div>
               )}
 
-              {/* HERO KPI — 2 metriche giant in mono */}
+              {/* HERO KPI — 2 metriche giant in mono.
+                  Picco e media sono SEMPRE calcolati sul segmento del filtro
+                  temporale (segmentMetrics.sogMax/sogAvg), coerentemente con
+                  manovre, andature e gli altri numeri della Panoramica. Quando
+                  il filtro copre tutta la sessione coincidono con i valori
+                  dell'header session_info; quando l'utente restringe la
+                  finestra si aggiornano in tempo reale. La sub di "picco"
+                  resta "Distanza totale" (etichetta esplicita "totale" =
+                  intera sessione) per non perdere quel riferimento. */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
                 <KpiHero
                   label="Velocità di picco"
-                  value={session_info.sog_max_kts.toFixed(1)}
+                  value={segmentMetrics?.sogMax != null ? segmentMetrics.sogMax.toFixed(1) : '--'}
                   suffix="kts"
                   sub={`Distanza totale ${session_info.distance_nm} NM`}
                   highlight
                 />
                 <KpiHero
                   label="Velocità media"
-                  value={session_info.sog_avg_kts.toFixed(1)}
+                  value={segmentMetrics?.sogAvg != null ? segmentMetrics.sogAvg.toFixed(1) : '--'}
                   suffix="kts"
                   sub="Costanza alta"
                 />
@@ -959,9 +995,14 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
                     <div ref={overviewChartContainerRef} className="relative px-4 py-4">
                       <SessionSpeedChart
                         track={
-                          (primarySession.highResTrack && primarySession.highResTrack.length > 0)
-                            ? primarySession.highResTrack
-                            : (primarySession.trackData ?? [])
+                          // Curva SOG ristretta al segmento del filtro temporale
+                          // per coerenza con le altre metriche della Panoramica.
+                          // Preferiamo l'high-res (1 Hz) per non perdere picchi
+                          // brevi; fallback al decimato (5s) quando l'high-res
+                          // non e' disponibile.
+                          (segmentMetrics && segmentMetrics.filteredHighRes.length > 0)
+                            ? segmentMetrics.filteredHighRes
+                            : (segmentMetrics?.filteredTrack ?? [])
                         }
                         sessionStartMs={primaryStartMs}
                         notes={notes}

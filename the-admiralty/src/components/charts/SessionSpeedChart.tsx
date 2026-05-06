@@ -95,12 +95,13 @@ export default function SessionSpeedChart({
   onChartClick,
   onNoteClick,
 }: Props) {
-  const { chartData, maxSec } = useMemo(() => {
+  const { chartData, minSec, maxSec } = useMemo(() => {
     if (!track || track.length === 0 || !Number.isFinite(sessionStartMs)) {
-      return { chartData: [] as Array<{ t: number; sog: number }>, maxSec: 0 };
+      return { chartData: [] as Array<{ t: number; sog: number }>, minSec: 0, maxSec: 0 };
     }
     const out: Array<{ t: number; sog: number }> = [];
-    let max = 0;
+    let max = -Infinity;
+    let min = Infinity;
     for (const p of track) {
       const ms = parseBackendTimestamp(p.timestamp);
       if (!Number.isFinite(ms)) continue;
@@ -109,9 +110,21 @@ export default function SessionSpeedChart({
       if (!Number.isFinite(sog)) continue;
       out.push({ t, sog });
       if (t > max) max = t;
+      if (t < min) min = t;
     }
-    return { chartData: out, maxSec: max };
+    if (!Number.isFinite(min) || !Number.isFinite(max)) {
+      return { chartData: out, minSec: 0, maxSec: 0 };
+    }
+    return { chartData: out, minSec: min, maxSec: max };
   }, [track, sessionStartMs]);
+
+  // Note visibili solo se il loro timestamp cade dentro la finestra del
+  // chart: quando il filtro temporale restringe il track, le note fuori
+  // periodo non devono estendere il dominio X (ifOverflow="extendDomain"
+  // del Recharts riallargherebbe l'asse, vanificando il filtro).
+  const visibleNotes = useMemo(() => {
+    return notes.filter(n => n.timestampSec >= minSec && n.timestampSec <= maxSec);
+  }, [notes, minSec, maxSec]);
 
   const formatTick = useMemo(() => formatTickFactory(maxSec), [maxSec]);
 
@@ -128,10 +141,12 @@ export default function SessionSpeedChart({
     const label = state?.activeLabel;
     if (label == null || isNaN(Number(label))) return;
     const t = Number(label);
-    // Se il click cade vicino a una nota esistente, lascia che sia il marker
+    // Se il click cade vicino a una nota visibile, lascia che sia il marker
     // a gestirlo (evita popup di "nuova nota" sovrapposto al popup di
-    // modifica che parte dal click sul marker).
-    const nearMarker = notes.some(n => Math.abs(n.timestampSec - t) <= NEAR_MARKER_TOLERANCE_SEC);
+    // modifica che parte dal click sul marker). Solo le note dentro la
+    // finestra visibile rendono un marker, quindi solo quelle possono essere
+    // intercettate dal click sull'area.
+    const nearMarker = visibleNotes.some(n => Math.abs(n.timestampSec - t) <= NEAR_MARKER_TOLERANCE_SEC);
     if (nearMarker) return;
     const coord = state?.activeCoordinate;
     const px = typeof coord?.x === 'number' ? coord.x : 0;
@@ -151,7 +166,7 @@ export default function SessionSpeedChart({
           <XAxis
             dataKey="t"
             type="number"
-            domain={[0, maxSec]}
+            domain={[minSec, maxSec]}
             tickFormatter={formatTick}
             minTickGap={40}
             tick={{ fill: COLOR_TICK, fontSize: 10, fontFamily: 'JetBrains Mono, ui-monospace, monospace' }}
@@ -179,14 +194,14 @@ export default function SessionSpeedChart({
 
           {/* Linee tratteggiate gold per ogni nota: leggibili a colpo d'occhio
               anche con tante annotazioni vicine. */}
-          {notes.map((n) => (
+          {visibleNotes.map((n) => (
             <ReferenceLine
               key={`note-line-${n.id}`}
               x={n.timestampSec}
               stroke={n.color ?? COLOR_NOTE}
               strokeWidth={1}
               strokeDasharray="3 4"
-              ifOverflow="extendDomain"
+              ifOverflow="hidden"
             />
           ))}
 
@@ -195,7 +210,7 @@ export default function SessionSpeedChart({
               popup di modifica senza che il click "passi attraverso" al
               LineChart sottostante (che aprirebbe invece il popup di nuova
               nota). */}
-          {notes.map((n) => {
+          {visibleNotes.map((n) => {
             const isHi = highlightedNoteId === n.id;
             const num = numberOf(n.id);
             const radius = isHi ? 11 : 9;
@@ -205,7 +220,7 @@ export default function SessionSpeedChart({
                 x={n.timestampSec}
                 y={chartData[0]?.sog ?? 0}
                 r={radius}
-                ifOverflow="extendDomain"
+                ifOverflow="hidden"
                 yAxisId={0}
                 shape={(props: AnyProps) => {
                   const cx = Number(props.cx);
