@@ -278,10 +278,20 @@ export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange
     const isPositive = (m.delta_v ?? 0) >= 0;
     const isFly = m.sog_min != null && getFoilingStatus(m.sog_min, flyThreshold).label === 'FLY';
     const timeString = safeTime(m.timestamp);
-    // V.MIN sotto 8 kts = manovra problematica (caduta dal foil): rosso.
-    // Sopra soglia, il valore resta neutro perche' il colore del chip
-    // FLY/TOUCH gia' codifica il risultato.
-    const sogMinIsLow = m.sog_min != null && m.sog_min < 8;
+    // Colore V.MIN a tre stati:
+    //   - null o esattamente 0 → ink-3 (grigio neutro): non e' una caduta,
+    //     e' dato assente o inizio sessione. Il rosso qui darebbe un
+    //     falso allarme su tutte le manovre senza misura.
+    //   - 0 < V < 8 kts → red: caduta dal foil, manovra problematica.
+    //   - V >= 8 kts   → ink: lettura normale, il chip FLY/TOUCH gia'
+    //     codifica il risultato.
+    const sogMin = m.sog_min;
+    const sogMinColor =
+      sogMin == null || sogMin === 0
+        ? 'rgb(var(--ink-3))'
+        : sogMin < 8
+          ? 'rgb(var(--red))'
+          : 'rgb(var(--ink))';
 
     return (
       <div
@@ -342,7 +352,7 @@ export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange
         <div className="col-span-1 text-center">
           <span
             className="font-mono tabular text-body-lg"
-            style={{ color: sogMinIsLow ? 'rgb(var(--red))' : 'rgb(var(--ink))' }}
+            style={{ color: sogMinColor }}
           >
             {m.sog_min != null ? m.sog_min.toFixed(1) : '--'}
           </span>
@@ -601,8 +611,10 @@ export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange
               const isCollapsed = collapsedLegs[legName];
               const { maneuvers: legManeuvers, vmgAvg } = legData;
               // Quando la tabella e' attaccata sotto, il leg-row tiene solo
-              // gli angoli superiori arrotondati cosi' bordo button e bordo
-              // tabella si fondono in un unico pannello cockpit.
+              // gli angoli superiori arrotondati E rinuncia al border-bottom:
+              // unito al borderTop:none della tabella sotto, le due aree si
+              // fondono visivamente in un unico pannello cockpit (nessun
+              // 1px-line di separazione fra header del leg e prima riga).
               const legRowRadius = isCollapsed
                 ? 'var(--radius-lg)'
                 : 'var(--radius-lg) var(--radius-lg) 0 0';
@@ -614,6 +626,7 @@ export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange
                     style={{
                       background: 'linear-gradient(90deg, rgba(212,175,110,0.06), transparent 60%)',
                       border: '1px solid var(--line)',
+                      borderBottom: isCollapsed ? '1px solid var(--line)' : 'none',
                       borderRadius: legRowRadius,
                       padding: '12px 16px',
                     }}
