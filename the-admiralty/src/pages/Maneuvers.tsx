@@ -244,13 +244,28 @@ export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange
     };
   }, [csvExportRef, handleExportCSV]);
 
-  // Header griglia — riusato da leg grouping e modalita' paginata.
+  // Header griglia in stile cockpit: tipografia mono uppercase, filo --line
+  // in basso, sfondo quasi-trasparente per non rubare contrasto alle righe.
+  // V.MIN evidenziata in gold perche' e' la metrica pivot del motore foiling
+  // (decide FLY vs TOUCH e calibra il TTR).
   const headerRow = (
-    <div className="grid grid-cols-12 gap-2 px-6 py-2 bg-surface-2 eyebrow border-b border-border">
+    <div
+      className="grid grid-cols-12 gap-2"
+      style={{
+        padding: '10px 14px',
+        background: 'rgba(255,255,255,0.012)',
+        borderBottom: '1px solid var(--line)',
+        fontFamily: 'var(--mono)',
+        fontSize: 10,
+        letterSpacing: '0.18em',
+        textTransform: 'uppercase',
+        color: 'rgb(var(--ink-3))',
+      }}
+    >
       <div className="col-span-2">{isMulti ? 'Atleta · Info' : 'Info'}</div>
       <div className="col-span-2">Manovra</div>
       <div className="col-span-1 text-center" title="Velocità ingresso">V.in</div>
-      <div className="col-span-1 text-center text-ink" title="Velocità minima">V.min</div>
+      <div className="col-span-1 text-center" style={{ color: 'rgb(var(--gold))' }} title="Velocità minima">V.min</div>
       <div className="col-span-1 text-center" title="Velocità uscita (+12s)">V.out</div>
       <div className="col-span-1 text-center" title="Durata totale (Discesa + Recupero)">Durata</div>
       <div className="col-span-3 text-center" title="Tempo per recuperare il 50% della V persa">TTR (50%)</div>
@@ -263,12 +278,20 @@ export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange
     const isPositive = (m.delta_v ?? 0) >= 0;
     const isFly = m.sog_min != null && getFoilingStatus(m.sog_min, flyThreshold).label === 'FLY';
     const timeString = safeTime(m.timestamp);
+    // V.MIN sotto 8 kts = manovra problematica (caduta dal foil): rosso.
+    // Sopra soglia, il valore resta neutro perche' il colore del chip
+    // FLY/TOUCH gia' codifica il risultato.
+    const sogMinIsLow = m.sog_min != null && m.sog_min < 8;
 
     return (
       <div
         key={`${m.athleteId}-${m.maneuverId}`}
         onClick={() => setSelectedManeuver(m)}
-        className="grid grid-cols-12 gap-2 px-6 py-3.5 items-center hover:bg-surface-2 transition-colors duration-220 cursor-pointer"
+        className="grid grid-cols-12 gap-2 items-center cursor-pointer transition-colors duration-220 hover:bg-[rgba(212,175,110,0.025)]"
+        style={{
+          padding: '14px',
+          borderBottom: '1px solid var(--line)',
+        }}
       >
         <div className="col-span-2 flex flex-col">
           {isMulti && (
@@ -277,8 +300,16 @@ export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange
               <span className="text-eyebrow uppercase tracking-eyebrow text-ink truncate">{m.athleteLabel}</span>
             </div>
           )}
-          <span className="text-body font-mono tabular text-ink">{timeString}</span>
-          <span className="text-caption font-mono tabular text-ink-muted">
+          <span
+            className="font-mono tabular"
+            style={{ fontSize: 13, color: 'rgb(var(--ink))' }}
+          >
+            {timeString}
+          </span>
+          <span
+            className="font-mono tabular"
+            style={{ fontSize: 10.5, color: 'rgb(var(--ink-3))' }}
+          >
             {m.maneuverId} · {m.leg_distance_nm != null ? m.leg_distance_nm.toFixed(2) : '--'} NM
           </span>
         </div>
@@ -286,7 +317,17 @@ export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange
         <div className="col-span-2 flex flex-col items-start gap-1.5">
           <div className="flex items-center gap-2">
             <div className={`w-1.5 h-1.5 rounded-full ${isTack ? 'bg-gold' : 'bg-ink-2'}`} />
-            <span className="text-body text-ink">{isTack ? 'Virata' : 'Strambata'}</span>
+            <span
+              style={{
+                fontFamily: 'var(--serif)',
+                fontStyle: 'italic',
+                fontSize: 15,
+                color: 'rgb(var(--ink))',
+                lineHeight: 1.1,
+              }}
+            >
+              {isTack ? 'Virata' : 'Strambata'}
+            </span>
           </div>
           <span className={`text-[9px] uppercase tracking-eyebrow px-1.5 py-0.5 rounded-sm border ${
             isFly ? 'bg-sage/15 text-sage border-sage/30' : 'bg-amber/15 text-amber border-amber/30'
@@ -299,7 +340,12 @@ export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange
           <span className="font-mono tabular text-body text-ink-2">{m.sog_in != null ? m.sog_in.toFixed(1) : '--'}</span>
         </div>
         <div className="col-span-1 text-center">
-          <span className="font-mono tabular text-body-lg text-ink">{m.sog_min != null ? m.sog_min.toFixed(1) : '--'}</span>
+          <span
+            className="font-mono tabular text-body-lg"
+            style={{ color: sogMinIsLow ? 'rgb(var(--red))' : 'rgb(var(--ink))' }}
+          >
+            {m.sog_min != null ? m.sog_min.toFixed(1) : '--'}
+          </span>
         </div>
         <div className="col-span-1 text-center">
           <span className="font-mono tabular text-body text-ink-2">{m.sog_out != null ? m.sog_out.toFixed(1) : '--'}</span>
@@ -331,7 +377,13 @@ export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange
           )}
         </div>
 
-        <div className={`col-span-1 text-right font-mono tabular text-body ${isPositive ? 'text-sage' : 'text-amber'}`}>
+        <div
+          className="col-span-1 text-right font-mono tabular"
+          style={{
+            fontSize: 13,
+            color: isPositive ? 'rgb(var(--green))' : 'rgb(var(--red))',
+          }}
+        >
           {isPositive ? '+' : ''}{m.delta_v != null ? m.delta_v.toFixed(1) : '--'}
         </div>
       </div>
@@ -342,14 +394,48 @@ export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange
     <div className="bg-bg text-ink min-h-screen pb-20">
       <div className="max-w-[1400px] mx-auto px-6 lg:px-12 py-8">
 
-        {/* Header pagina editoriale */}
+        {/* Header pagina cockpit: eyebrow mono con filo --line a destra +
+            titolo serif italic 56px con apice mono che ricorda gli assi
+            metrici della tabella (rimpiazza la descrizione discorsiva
+            precedente: stesso significato, densita' molto piu' alta). */}
         <header className="pb-6">
-          <p className="eyebrow mb-2">Catalogo manovre</p>
-          <h1 className="font-serif italic text-h2 text-ink leading-none">Registro</h1>
-          <p className="text-caption text-ink-muted mt-3 max-w-2xl">
-            Ogni virata e strambata della finestra temporale corrente, con le metriche
-            chiave del motore foiling (V.in / V.min / V.out, TTR 50%, ΔV).
-          </p>
+          <div className="flex items-baseline gap-3.5 mb-3">
+            <span
+              style={{
+                fontFamily: 'var(--mono)',
+                fontSize: 10.5,
+                letterSpacing: '0.22em',
+                textTransform: 'uppercase',
+                color: 'rgb(var(--ink-3))',
+              }}
+            >
+              Catalogo manovre
+            </span>
+            <div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
+          </div>
+          <div className="flex items-baseline gap-3 flex-wrap">
+            <h1
+              style={{
+                fontFamily: 'var(--serif)',
+                fontStyle: 'italic',
+                fontSize: 56,
+                color: 'rgb(var(--ink))',
+                lineHeight: 1,
+                margin: 0,
+              }}
+            >
+              Registro
+            </h1>
+            <span
+              style={{
+                fontFamily: 'var(--mono)',
+                fontSize: 11,
+                color: 'rgb(var(--ink-3))',
+              }}
+            >
+              v.in / v.min / v.out · TTR 50% · ΔV
+            </span>
+          </div>
         </header>
 
         <div className="rule-brass mb-6" />
@@ -473,8 +559,20 @@ export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange
             </button>
           </div>
         ) : isPaginated ? (
-          <div className="bg-surface-1 border border-border rounded-md shadow-card overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-3 bg-surface-2 border-b border-border">
+          <div
+            style={{
+              border: '1px solid var(--line)',
+              borderRadius: 'var(--radius-lg)',
+              overflow: 'hidden',
+            }}
+          >
+            <div
+              className="flex items-center justify-between px-6 py-3"
+              style={{
+                background: 'rgba(255,255,255,0.012)',
+                borderBottom: '1px solid var(--line)',
+              }}
+            >
               <div className="text-caption text-ink-2">
                 Pagina <span className="font-mono tabular text-ink">{safePage}</span> di <span className="font-mono tabular">{totalPages}</span>
                 <span className="text-ink-muted ml-3 font-mono tabular">
@@ -495,31 +593,59 @@ export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange
               </div>
             </div>
             {headerRow}
-            <div className="divide-y divide-border">
-              {visibleRows.map(renderRow)}
-            </div>
+            {visibleRows.map(renderRow)}
           </div>
         ) : (
           <div className="space-y-4">
             {legs.map(([legName, legData], legIndex) => {
               const isCollapsed = collapsedLegs[legName];
               const { maneuvers: legManeuvers, vmgAvg } = legData;
+              // Quando la tabella e' attaccata sotto, il leg-row tiene solo
+              // gli angoli superiori arrotondati cosi' bordo button e bordo
+              // tabella si fondono in un unico pannello cockpit.
+              const legRowRadius = isCollapsed
+                ? 'var(--radius-lg)'
+                : 'var(--radius-lg) var(--radius-lg) 0 0';
               return (
-                <div key={legIndex} className="bg-surface-1 border border-border rounded-md shadow-card overflow-hidden">
+                <div key={legIndex}>
                   <button
                     onClick={() => toggleLeg(legName)}
-                    className="w-full flex items-center justify-between p-4 bg-surface-2 hover:bg-surface-2/80 transition-colors duration-220"
+                    className="w-full flex items-center justify-between transition-colors duration-220"
+                    style={{
+                      background: 'linear-gradient(90deg, rgba(212,175,110,0.06), transparent 60%)',
+                      border: '1px solid var(--line)',
+                      borderRadius: legRowRadius,
+                      padding: '12px 16px',
+                    }}
                   >
                     <div className="flex items-center gap-3">
                       <svg className={`w-4 h-4 text-ink transform transition-transform duration-220 ${isCollapsed ? '-rotate-90' : 'rotate-0'}`} fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-                      <h2 className="font-serif italic text-base text-ink">
-                        {legName.split(' ')[0]} {legName.split(' ')[1]}
-                        <span className="text-ink-muted text-caption ml-2 font-sans not-italic font-mono tabular">{legName.split(' ').slice(2).join(' ')}</span>
+                      <h2 className="leading-none m-0">
+                        <span
+                          style={{
+                            fontFamily: 'var(--serif)',
+                            fontStyle: 'italic',
+                            fontSize: 18,
+                            color: 'rgb(var(--ink))',
+                          }}
+                        >
+                          {legName.split(' ').slice(0, 2).join(' ')}
+                        </span>
+                        <span
+                          style={{
+                            fontFamily: 'var(--mono)',
+                            fontSize: 11,
+                            color: 'rgb(var(--ink-3))',
+                            marginLeft: 8,
+                          }}
+                        >
+                          {legName.split(' ').slice(2).join(' ')}
+                        </span>
                       </h2>
                     </div>
-                    {/* Riepilogo leg: VMG media + conteggio manovre. La VMG
-                        e' "n/d" se nessun campione high-res del leg aveva
-                        TWA valida (TWD assente per quell'ora). */}
+                    {/* Riepilogo leg: VMG media (valore in gold) + conteggio
+                        manovre. La VMG e' "n/d" se nessun campione high-res
+                        del leg aveva TWA valida (TWD assente per quell'ora). */}
                     <div className="flex items-center gap-2">
                       <span
                         className="eyebrow bg-bg px-2 py-1 rounded-sm border border-border"
@@ -532,7 +658,10 @@ export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange
                         }`.trim()}
                       >
                         <span className="normal-case tracking-normal text-ink-muted">VMG</span>{' '}
-                        <span className="font-mono tabular normal-case tracking-normal text-ink">
+                        <span
+                          className="font-mono tabular normal-case tracking-normal"
+                          style={{ color: 'rgb(var(--gold))' }}
+                        >
                           {vmgAvg != null ? vmgAvg.toFixed(1) : 'n/d'}
                         </span>
                         {vmgAvg != null && <span className="normal-case tracking-normal text-ink-muted"> kts</span>}
@@ -544,11 +673,16 @@ export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange
                   </button>
 
                   {!isCollapsed && (
-                    <div className="border-t border-border">
+                    <div
+                      style={{
+                        border: '1px solid var(--line)',
+                        borderTop: 'none',
+                        borderRadius: '0 0 var(--radius-lg) var(--radius-lg)',
+                        overflow: 'hidden',
+                      }}
+                    >
                       {headerRow}
-                      <div className="divide-y divide-border">
-                        {legManeuvers.map(renderRow)}
-                      </div>
+                      {legManeuvers.map(renderRow)}
                     </div>
                   )}
                 </div>
