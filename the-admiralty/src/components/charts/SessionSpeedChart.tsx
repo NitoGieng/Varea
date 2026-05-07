@@ -149,8 +149,15 @@ export default function SessionSpeedChart({
       if (!Number.isFinite(sog)) continue;
       // vmg_knots e' null sui campioni dove il backend non aveva TWA: passiamo
       // null a Recharts cosi' la linea si interrompe naturalmente sul gap.
+      // I valori negativi (perdita verso vento in lasco/poppa, fisicamente
+      // legittimi) vengono clampati a 0 SOLO per la visualizzazione: il dato
+      // sorgente in p.vmg_knots resta intatto e le card VMG continuano a
+      // mostrare i valori veri. Senza clamp la curva scivolava a -15/-30 kts
+      // schiacciando il dominio Y e rendendo illeggibile la SOG.
       const vmgRaw = p.vmg_knots;
-      const vmg = typeof vmgRaw === 'number' && Number.isFinite(vmgRaw) ? vmgRaw : null;
+      const vmg = typeof vmgRaw === 'number' && Number.isFinite(vmgRaw)
+        ? Math.max(0, vmgRaw)
+        : null;
       out.push({ t, sog, vmg });
       if (t > max) max = t;
       if (t < min) min = t;
@@ -251,8 +258,12 @@ export default function SessionSpeedChart({
             axisLine={false}
             tickLine={false}
           />
+          {/* Domain forzato a partire da 0: la VMG e' gia' clampata a >=0 in
+              chartData, e i nodi non potranno mai essere negativi. Esplicitare
+              il min evita che recharts lo deduca da SOG ed introduca padding
+              negativo se in futuro arrivasse una serie con valori sotto zero. */}
           <YAxis
-            domain={['auto', 'auto']}
+            domain={[0, 'auto']}
             tick={{ fill: COLOR_TICK, fontSize: 10, fontFamily: 'JetBrains Mono, ui-monospace, monospace' }}
             axisLine={false}
             tickLine={false}

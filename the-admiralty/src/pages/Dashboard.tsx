@@ -929,7 +929,7 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
                       resta sempre, anche con TWD == 0. */}
                   <div className="flex items-center gap-4 md:justify-end">
                     {Number.isFinite(environment.computed_twd_deg) && (
-                      <WindRose size={88} dir={environment.computed_twd_deg} />
+                      <WindRose size={112} dir={environment.computed_twd_deg} />
                     )}
                     <div className="flex items-baseline gap-2">
                       <span className="font-mono tabular text-3xl text-gold leading-none">
@@ -1025,7 +1025,6 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
                   value={segmentMetrics?.sogMax != null ? segmentMetrics.sogMax.toFixed(1) : '--'}
                   suffix="kts"
                   sub={`Distanza totale ${session_info.distance_nm} NM`}
-                  highlight
                 />
                 <KpiHero
                   label="Velocità media"
@@ -1046,7 +1045,7 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
               {segmentMetrics && (
                 <section className="mb-10 space-y-6">
                   <div>
-                    <p className="eyebrow mb-3">Manovre · volume</p>
+                    <SectionRule>Manovre · volume</SectionRule>
                     <div className="grid grid-cols-2 gap-3 max-w-md">
                       <VolumeCard
                         label="Virate"
@@ -1061,7 +1060,7 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
                     </div>
                   </div>
                   <div>
-                    <p className="eyebrow mb-3">Velocità per andatura</p>
+                    <SectionRule>Velocità per andatura</SectionRule>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <PerformanceCard
                         label="Bolina"
@@ -1179,7 +1178,7 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
                   angolare senza dover aprire documentazione. */}
               {segmentMetrics && (
                 <section className="mb-10">
-                  <p className="eyebrow mb-3">Velocity Made Good</p>
+                  <SectionRule>Velocity Made Good</SectionRule>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <VmgCard
                       label="VMG Bolina"
@@ -1761,26 +1760,184 @@ interface KpiHeroProps {
   value: string;
   suffix: string;
   sub: string;
-  highlight?: boolean;
 }
 
-// Card hero: numero giant mono, eyebrow uppercase, brass rule sotto al sub.
-// `highlight` disegna una linea brass verticale a sx (richiamo trim Riva).
-function KpiHero({ label, value, suffix, sub, highlight }: KpiHeroProps) {
+// Card hero cockpit: gradient navy in basso che sfuma in alto, accent
+// gold a sinistra largo 3px (border compound), 4 angolini decorativi
+// in --line-2 stile mirino strumento. Numero principale grande in mono
+// per coerenza con la lettura di cruscotto.
+function KpiHero({ label, value, suffix, sub }: KpiHeroProps) {
   return (
-    <div className="bg-surface-1 border border-border rounded-lg shadow-card p-8 relative overflow-hidden">
-      {highlight && <div className="absolute top-0 left-0 w-0.5 h-full bg-gold" />}
-      <p className="eyebrow mb-6">{label}</p>
-      <div className="flex items-baseline gap-3 mb-6">
-        <span className="font-mono text-display tabular text-ink leading-none">{value}</span>
-        <span className="text-eyebrow text-gold">{suffix}</span>
+    <div
+      className="relative overflow-hidden"
+      style={{
+        background: 'linear-gradient(180deg, rgba(20,40,70,0.55) 0%, rgba(10,26,46,0.95) 100%)',
+        border: '1px solid var(--line)',
+        borderLeft: '3px solid rgb(var(--gold))',
+        borderRadius: 'var(--radius-lg)',
+        padding: '24px 28px',
+      }}
+    >
+      <CornerBrackets />
+
+      <span
+        className="block"
+        style={{
+          fontFamily: 'var(--mono)',
+          fontSize: 9.5,
+          letterSpacing: '0.18em',
+          textTransform: 'uppercase',
+          color: 'rgb(var(--ink-3))',
+          marginBottom: 18,
+        }}
+      >
+        {label}
+      </span>
+
+      <div className="flex items-start gap-2">
+        <span
+          className="tabular"
+          style={{
+            fontFamily: 'var(--mono)',
+            fontSize: 64,
+            fontWeight: 500,
+            letterSpacing: '-0.02em',
+            color: 'rgb(var(--ink))',
+            lineHeight: 1,
+          }}
+        >
+          {value}
+        </span>
+        <sup
+          style={{
+            fontFamily: 'var(--mono)',
+            fontSize: 12,
+            color: 'rgb(var(--ink-3))',
+            marginLeft: 4,
+            marginTop: 6,
+            verticalAlign: 'top',
+          }}
+        >
+          {suffix}
+        </sup>
       </div>
-      <div className="rule-brass pt-3">
-        <p className="text-caption text-ink-muted">{sub}</p>
+
+      {/* Separatore filo --line: divide la metrica dal footer. */}
+      <div style={{ borderTop: '1px solid var(--line)', margin: '12px 0' }} />
+
+      <div
+        className="flex items-center gap-3 flex-wrap"
+        style={{
+          fontFamily: 'var(--mono)',
+          fontSize: 11,
+          color: 'rgb(var(--ink-3))',
+        }}
+      >
+        <span>{sub}</span>
       </div>
     </div>
   );
 }
+
+// Eyebrow di sezione in stile cockpit: la label mono-uppercase a
+// sinistra + un filo orizzontale --line che corre fino al margine
+// destro. Sostituisce la vecchia <p className="eyebrow"> piatta dove
+// vogliamo sottolineare la struttura "pannello strumento".
+function SectionRule({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex items-baseline gap-3.5 mb-3.5">
+      <span
+        style={{
+          fontFamily: 'var(--mono)',
+          fontSize: 10.5,
+          letterSpacing: '0.22em',
+          textTransform: 'uppercase',
+          color: 'rgb(var(--ink-3))',
+        }}
+      >
+        {children}
+      </span>
+      <div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
+    </div>
+  );
+}
+
+// Quattro angolini decorativi stile mirino strumento. Posizionati
+// assoluti nei quattro angoli del contenitore relative+overflow-hidden
+// (es. KpiHero). Solo decorazione visiva, nessuna semantica.
+function CornerBrackets() {
+  const size = 10;
+  const color = 'rgba(212,175,110,0.35)';
+  const thickness = 1;
+  const corner = (pos: 'tl' | 'tr' | 'bl' | 'br'): React.CSSProperties => {
+    const base: React.CSSProperties = {
+      position: 'absolute',
+      width: size,
+      height: size,
+      pointerEvents: 'none',
+    };
+    if (pos === 'tl') return { ...base, top: 6, left: 6, borderTop: `${thickness}px solid ${color}`, borderLeft: `${thickness}px solid ${color}` };
+    if (pos === 'tr') return { ...base, top: 6, right: 6, borderTop: `${thickness}px solid ${color}`, borderRight: `${thickness}px solid ${color}` };
+    if (pos === 'bl') return { ...base, bottom: 6, left: 6, borderBottom: `${thickness}px solid ${color}`, borderLeft: `${thickness}px solid ${color}` };
+    return { ...base, bottom: 6, right: 6, borderBottom: `${thickness}px solid ${color}`, borderRight: `${thickness}px solid ${color}` };
+  };
+  return (
+    <>
+      <span aria-hidden style={corner('tl')} />
+      <span aria-hidden style={corner('tr')} />
+      <span aria-hidden style={corner('bl')} />
+      <span aria-hidden style={corner('br')} />
+    </>
+  );
+}
+
+// Stile condiviso per le card stat (Volume/Performance/Vmg): gradient
+// chiarissimo dall'alto, bordo --line, radius LG, padding cockpit. La
+// stessa famiglia visiva tiene compatte conteggi (Virate/Strambate),
+// medie per andatura (Bolina/Traverso/Poppa) e VMG senza variare lo
+// "stack" ottico delle griglie.
+const statCardStyle: React.CSSProperties = {
+  background: 'linear-gradient(180deg, rgba(255,255,255,0.02) 0%, rgba(255,255,255,0) 100%)',
+  border: '1px solid var(--line)',
+  borderRadius: 'var(--radius-lg)',
+  padding: '14px 16px',
+};
+
+const statLabelStyle: React.CSSProperties = {
+  display: 'block',
+  fontFamily: 'var(--mono)',
+  fontSize: 9.5,
+  letterSpacing: '0.18em',
+  textTransform: 'uppercase',
+  color: 'rgb(var(--ink-3))',
+  marginBottom: 8,
+};
+
+const statValueStyle: React.CSSProperties = {
+  fontFamily: 'var(--mono)',
+  fontSize: 30,
+  fontWeight: 500,
+  color: 'rgb(var(--ink))',
+  letterSpacing: '-0.02em',
+  fontVariantNumeric: 'tabular-nums',
+  lineHeight: 1,
+};
+
+const statUnitStyle: React.CSSProperties = {
+  fontFamily: 'var(--mono)',
+  fontSize: 11,
+  color: 'rgb(var(--ink-3))',
+  marginLeft: 6,
+};
+
+const statMetaStyle: React.CSSProperties = {
+  marginTop: 4,
+  fontFamily: 'var(--mono)',
+  fontSize: 11,
+  color: 'rgb(var(--ink-3))',
+  fontVariantNumeric: 'tabular-nums',
+  minHeight: '1em',
+};
 
 // Card "volume": metriche di conteggio (numero di manovre). Look neutro,
 // dimensione compatta. Subline con la frequenza oraria (es. "18/h")
@@ -1799,25 +1956,25 @@ function VolumeCard({
   const showRate = periodHours >= 0.1 && value > 0;
   const rate = showRate ? value / periodHours : null;
   return (
-    <div className="bg-surface-1 border border-border rounded-md p-4">
-      <p className="eyebrow mb-3">{label}</p>
-      <div className="flex items-baseline gap-1.5">
-        <span className="font-mono text-2xl text-ink tabular leading-none">{value}</span>
+    <div style={statCardStyle}>
+      <span style={statLabelStyle}>{label}</span>
+      <div className="flex items-baseline">
+        <span style={statValueStyle}>{value}</span>
       </div>
-      <p className="text-caption text-ink-muted mt-2 font-mono tabular min-h-[1em]">
+      <p style={statMetaStyle}>
         {rate != null ? `${rate.toFixed(0)}/h` : '\u00A0'}
       </p>
     </div>
   );
 }
 
-// Card "performance": velocita' media per andatura. Variante gerarchica
-// piu' alta delle volume card — accent gold a sinistra (lo stesso bar
-// usato dalla KpiHero highlight), padding maggiore, valore leggermente
-// piu' grande. Subline con la percentuale di tempo trascorso in
-// quell'andatura nel periodo selezionato: aiuta a distinguere "Poppa
-// 18 kts ma 4% del tempo" (lampo isolato) da "Bolina 12 kts e 60% del
-// tempo" (regime dominante della sessione).
+// Card "performance": velocita' media per andatura. Stessa famiglia
+// visiva delle volume card (la gerarchia ora vive nell'eyebrow di
+// sezione, non sull'accent gold della singola card). Subline con la
+// percentuale di tempo trascorso in quell'andatura nel periodo
+// selezionato: aiuta a distinguere "Poppa 18 kts ma 4% del tempo"
+// (lampo isolato) da "Bolina 12 kts e 60% del tempo" (regime dominante
+// della sessione).
 function PerformanceCard({
   label,
   value,
@@ -1830,14 +1987,13 @@ function PerformanceCard({
   pctTime: number | null;
 }) {
   return (
-    <div className="bg-surface-1 border border-border rounded-md p-5 relative overflow-hidden">
-      <div className="absolute top-0 left-0 w-0.5 h-full bg-gold" />
-      <p className="eyebrow mb-3">{label}</p>
-      <div className="flex items-baseline gap-1.5">
-        <span className="font-mono text-3xl text-ink tabular leading-none">{value}</span>
-        <span className="text-caption text-gold">{unit}</span>
+    <div style={statCardStyle}>
+      <span style={statLabelStyle}>{label}</span>
+      <div className="flex items-baseline">
+        <span style={statValueStyle}>{value}</span>
+        <span style={statUnitStyle}>{unit}</span>
       </div>
-      <p className="text-caption text-ink-muted mt-2 min-h-[1em]">
+      <p style={statMetaStyle}>
         {pctTime != null ? `${pctTime.toFixed(0)}% del tempo` : '\u00A0'}
       </p>
     </div>
@@ -1868,22 +2024,39 @@ function VmgCard({
   const peakDisplay = peak != null && Number.isFinite(peak) ? peak.toFixed(1) : null;
   const sogDisplay = sogAvg != null && Number.isFinite(sogAvg) ? sogAvg.toFixed(1) : null;
   return (
-    <div className="bg-surface-1 border border-border rounded-md p-5 relative overflow-hidden">
-      <div className="absolute top-0 left-0 w-0.5 h-full bg-gold" />
-      <p className="eyebrow mb-3">{label}</p>
-      <div className="flex items-baseline gap-1.5">
-        <span className="font-mono text-3xl text-ink tabular leading-none">{display}</span>
-        <span className="text-caption text-gold">kts</span>
+    <div style={statCardStyle}>
+      <span style={statLabelStyle}>{label}</span>
+      <div className="flex items-baseline">
+        <span style={statValueStyle}>{display}</span>
+        <span style={statUnitStyle}>kts</span>
       </div>
-      <p className="text-caption text-ink-muted mt-2 min-h-[1em] font-mono tabular">
+      <p style={statMetaStyle}>
         {peakDisplay != null ? `picco: ${peakDisplay} kts` : '\u00A0'}
       </p>
       {sogDisplay != null && value != null && Number.isFinite(value) ? (
-        <p className="text-caption text-ink-2 mt-2 leading-snug">
-          {sogLabel}: <span className="font-mono tabular text-ink">{sogDisplay}</span> kts
+        <p
+          style={{
+            marginTop: 6,
+            fontFamily: 'var(--mono)',
+            fontSize: 11,
+            color: 'rgb(var(--ink-3))',
+            fontVariantNumeric: 'tabular-nums',
+          }}
+        >
+          {sogLabel}: <span style={{ color: 'rgb(var(--ink-2))' }}>{sogDisplay}</span> kts
         </p>
       ) : (
-        <p className="text-caption text-ink-muted mt-2 italic">Dati insufficienti per il confronto.</p>
+        <p
+          style={{
+            marginTop: 6,
+            fontFamily: 'var(--mono)',
+            fontSize: 11,
+            color: 'rgb(var(--ink-4))',
+            fontStyle: 'italic',
+          }}
+        >
+          Dati insufficienti per il confronto.
+        </p>
       )}
     </div>
   );
