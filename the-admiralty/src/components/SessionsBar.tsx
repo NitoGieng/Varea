@@ -45,7 +45,13 @@ export default function SessionsBar({
     null;
 
   return (
-    <div className="bg-surface-1 border-b border-border px-6 lg:px-12 py-3">
+    // Sub-bar piatta sul colore di sfondo della pagina: l'unico
+    // separatore visivo e' il filo --line in basso, coerente con
+    // TopBar e StatusStrip.
+    <div
+      className="bg-bg px-6 lg:px-12 py-3"
+      style={{ borderBottom: '1px solid var(--line)' }}
+    >
       <div className="max-w-[1500px] mx-auto flex items-center gap-2 flex-wrap">
         <span className="eyebrow mr-2 shrink-0">
           Sessioni · {sessions.length}

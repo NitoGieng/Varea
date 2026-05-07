@@ -10,6 +10,7 @@ import SessionsBar from '../components/SessionsBar';
 import Sidebar, { type View } from '../components/Sidebar';
 import ExportReportModal, { type ExportConfig } from '../components/ExportReportModal';
 import TwdSparkline from '../components/charts/TwdSparkline';
+import WindRose from '../components/charts/WindRose';
 import SessionSpeedChart from '../components/charts/SessionSpeedChart';
 import NotesPanel from '../components/NotesPanel';
 import NoteEditPopup from '../components/NoteEditPopup';
@@ -922,11 +923,20 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
                 </div>
                 <div className="text-left md:text-right shrink-0">
                   <p className="eyebrow mb-2">Vento reale</p>
-                  <div className="flex items-baseline gap-2 md:justify-end">
-                    <span className="font-mono tabular text-3xl text-gold leading-none">
-                      {environment.computed_twd_deg}
-                    </span>
-                    <span className="text-eyebrow text-ink-muted">°TWD</span>
+                  {/* Rosa dei venti accanto al readout numerico, allineati
+                      verticalmente al centro. La rosa appare solo quando il
+                      backend ha prodotto un TWD finito; il numero a destra
+                      resta sempre, anche con TWD == 0. */}
+                  <div className="flex items-center gap-4 md:justify-end">
+                    {Number.isFinite(environment.computed_twd_deg) && (
+                      <WindRose size={88} dir={environment.computed_twd_deg} />
+                    )}
+                    <div className="flex items-baseline gap-2">
+                      <span className="font-mono tabular text-3xl text-gold leading-none">
+                        {environment.computed_twd_deg}
+                      </span>
+                      <span className="text-eyebrow text-ink-muted">°TWD</span>
+                    </div>
                   </div>
                   {/* Pill fonte vento: amber per stima GPS, sage per Stormglass.
                       Volutamente piu' visibile della vecchia riga col pallino:
@@ -1554,7 +1564,12 @@ interface FilterBarProps {
 
 function FilterBar(p: FilterBarProps) {
   return (
-    <div className="bg-surface-1 border-b border-border px-6 lg:px-12 py-3">
+    // Sub-bar piatta sul colore di sfondo: nessun pannello distinto
+    // dal bg pagina, solo il filo --line di separazione.
+    <div
+      className="bg-bg px-6 lg:px-12 py-3"
+      style={{ borderBottom: '1px solid var(--line)' }}
+    >
       <div className="max-w-[1500px] mx-auto flex flex-col xl:flex-row justify-between items-start xl:items-center gap-3">
         <div>
           <p className="eyebrow">Filtro temporale</p>
