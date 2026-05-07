@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, ReferenceDot } from 'recharts';
 import type { HighResPoint } from '../types/telemetry';
 import { parseBackendTimestamp } from '../utils/time';
 
@@ -28,6 +28,11 @@ const COLOR_AXIS_DIM = '#5e6b80';
 const COLOR_TICK = '#a8b3c4';
 const COLOR_TOOLTIP_BG = '#0a1628';
 const COLOR_TOOLTIP_BORDER = 'rgba(201, 161, 105, 0.3)';
+// Hard-code di --bg dark (#04101f) per lo stroke del crossing-dot:
+// Recharts non risolve CSS custom properties nei suoi prop SVG, quindi
+// il valore va inlineato. Il match esatto col background del pannello
+// chart fa "ritagliare" il dot dalle line sottostanti.
+const COLOR_BG = '#04101f';
 
 // Tipo per i payload di Recharts (no tipi ufficiali stabili).
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -110,7 +115,10 @@ function ClockInput({ value, onCommit }: { value: string; onCommit: (hms: string
           (e.target as HTMLInputElement).blur();
         }
       }}
-      className="py-2 px-4 bg-transparent text-body-lg font-mono tabular font-bold text-ink outline-none"
+      // .cockpit-time-input gestisce font/colore + override dei separatori
+      // ":" via pseudo-classi WebKit (vedi index.css). Tabular-nums tiene
+      // l'allineamento delle cifre durante l'edit.
+      className="cockpit-time-input tabular"
     />
   );
 }
@@ -230,11 +238,33 @@ export default function StartAnalysis({ sessions }: Props) {
     return tickItem > 0 ? `+${tickItem}s` : `${tickItem}s`;
   };
 
+  // Y del crossing dot: SOG dell'atleta primario al T=0. null se non c'e'
+  // un campione esattamente in 0 (Recharts non fa interpolazione per il
+  // ReferenceDot, vuole un valore reale del dataset).
+  const primaryStat = perSessionStats.find(s => s.session.id === primary?.id);
+  const primaryCrossingY =
+    primaryStat?.hasData && primaryStat.speedAtZero > 0 ? primaryStat.speedAtZero : null;
+
   if (!primary) {
     return (
       <div className="px-6 lg:px-12 py-8 max-w-[1500px] mx-auto w-full">
         <header className="pb-5">
-          <p className="eyebrow mb-2">Analisi partenza</p>
+          {/* Eyebrow cockpit: mono uppercase + filo --line a destra,
+              stesso pattern di Manovre / Lab. */}
+          <div className="flex items-baseline gap-3.5 mb-3.5">
+            <span
+              style={{
+                fontFamily: 'var(--mono)',
+                fontSize: 10.5,
+                letterSpacing: '0.22em',
+                textTransform: 'uppercase',
+                color: 'rgb(var(--ink-3))',
+              }}
+            >
+              Analisi partenza
+            </span>
+            <div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
+          </div>
           <h1 className="font-serif italic text-h2 text-ink leading-none">Sparo</h1>
         </header>
         <div className="rule-brass mb-8" />
@@ -248,7 +278,22 @@ export default function StartAnalysis({ sessions }: Props) {
   return (
     <div className="px-6 lg:px-12 py-8 max-w-[1500px] mx-auto w-full">
       <header className="pb-5">
-        <p className="eyebrow mb-2">Analisi partenza</p>
+        {/* Eyebrow cockpit: mono uppercase + filo --line a destra,
+            stesso pattern di Manovre / Lab. */}
+        <div className="flex items-baseline gap-3.5 mb-3.5">
+          <span
+            style={{
+              fontFamily: 'var(--mono)',
+              fontSize: 10.5,
+              letterSpacing: '0.22em',
+              textTransform: 'uppercase',
+              color: 'rgb(var(--ink-3))',
+            }}
+          >
+            Analisi partenza
+          </span>
+          <div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
+        </div>
         <h1 className="font-serif italic text-h2 text-ink leading-none">Sparo</h1>
         <p className="text-caption text-ink-muted mt-3 max-w-2xl">
           Finestra tattica di 2 minuti pre-start e 1 minuto post-start attorno al
@@ -263,15 +308,70 @@ export default function StartAnalysis({ sessions }: Props) {
 
       <div className="rule-brass mb-6" />
 
-      <div className="bg-surface-1 border border-border rounded-lg shadow-card p-5 mb-6 flex flex-col md:flex-row items-end gap-6 justify-between flex-wrap">
-        <div>
-          <label className="block text-eyebrow uppercase tracking-eyebrow text-ink-muted mb-2">
+      {/* Card T=0 in stile cockpit: gradient sottile + bordo --line +
+          radius-lg. L'header porta il numero di sezione "02" (in --gold-dim,
+          marker tipografico tipo capitolo) accanto alla label mono, separato
+          dal corpo da un filo --line. L'input orario vive nel corpo: cifre
+          gold-2 32px, separatori ":" smorzati in --ink-4. */}
+      <div
+        className="mb-6"
+        style={{
+          background: 'linear-gradient(180deg, rgba(255,255,255,0.02) 0%, rgba(255,255,255,0) 100%)',
+          border: '1px solid var(--line)',
+          borderRadius: 'var(--radius-lg)',
+        }}
+      >
+        <div
+          className="flex items-baseline gap-3"
+          style={{
+            padding: '12px 16px',
+            borderBottom: '1px solid var(--line)',
+          }}
+        >
+          <span
+            className="tabular"
+            style={{
+              fontFamily: 'var(--mono)',
+              fontSize: 11,
+              fontWeight: 500,
+              color: 'rgb(var(--gold-dim))',
+              letterSpacing: '0.06em',
+            }}
+          >
+            02
+          </span>
+          <label
+            style={{
+              fontFamily: 'var(--mono)',
+              fontSize: 9.5,
+              letterSpacing: '0.18em',
+              textTransform: 'uppercase',
+              color: 'rgb(var(--ink-3))',
+            }}
+          >
             Ora esatta del T=0 (lo sparo)
           </label>
-          <div className="flex items-center bg-bg border border-border rounded-md focus-within:border-gold overflow-hidden w-fit transition-colors">
+        </div>
+
+        <div style={{ padding: '16px' }}>
+          <div
+            className="flex items-center w-fit transition-colors"
+            style={{
+              background: 'rgba(255,255,255,0.02)',
+              border: '1px solid var(--line-2)',
+              borderRadius: 'var(--radius-cockpit)',
+            }}
+          >
             <ClockInput value={startTimeInput} onCommit={setStartTimeInput} />
           </div>
-          <p className="text-caption text-ink-muted mt-2">
+          <p
+            style={{
+              marginTop: 10,
+              fontFamily: 'var(--mono)',
+              fontSize: 11,
+              color: 'rgb(var(--ink-3))',
+            }}
+          >
             {isMulti
               ? 'Tutti gli atleti vengono allineati a questo istante.'
               : 'Inserisci l\'orario reale in cui il comitato ha dato il via.'}
@@ -293,24 +393,9 @@ export default function StartAnalysis({ sessions }: Props) {
               </div>
               {hasData && (
                 <div className="grid grid-cols-3 gap-2">
-                  <div className="text-center">
-                    <div className="text-eyebrow uppercase tracking-eyebrow text-ink-muted mb-1">-15s</div>
-                    <div className="text-body-lg font-mono tabular font-bold text-ink-2">
-                      {maxPreStart.toFixed(1)}<span className="text-[10px] font-sans text-ink-muted ml-0.5">kts</span>
-                    </div>
-                  </div>
-                  <div className="text-center bg-gold/10 rounded px-1 py-0.5">
-                    <div className="text-eyebrow uppercase tracking-eyebrow text-gold mb-1">Crossing</div>
-                    <div className="text-body-lg font-mono tabular font-bold text-ink">
-                      {speedAtZero.toFixed(1)}<span className="text-[10px] font-sans text-ink-muted ml-0.5">kts</span>
-                    </div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-eyebrow uppercase tracking-eyebrow text-ink-muted mb-1">+15s</div>
-                    <div className="text-body-lg font-mono tabular font-bold text-ink-2">
-                      {avgPostStart.toFixed(1)}<span className="text-[10px] font-sans text-ink-muted ml-0.5">kts</span>
-                    </div>
-                  </div>
+                  <StartStat label="-15s" value={maxPreStart} variant="neutral" />
+                  <StartStat label="Crossing" value={speedAtZero} variant="gold" />
+                  <StartStat label="+15s" value={avgPostStart} variant="neutral" />
                 </div>
               )}
             </div>
@@ -346,15 +431,30 @@ export default function StartAnalysis({ sessions }: Props) {
                 x={0}
                 stroke={COLOR_LINE}
                 strokeWidth={1}
-                strokeDasharray="3 4"
+                strokeDasharray="3 3"
                 label={{
                   position: 'top',
-                  value: 'START',
+                  value: 'START · T0',
                   fill: COLOR_LINE,
                   fontSize: 10,
                   fontFamily: 'JetBrains Mono, monospace',
+                  letterSpacing: '0.22em',
                 }}
               />
+              {/* Crossing dot: marker tondo dove la linea START taglia la
+                  curva SOG dell'atleta primario. Lo stroke dal colore del
+                  background "scolpisce" il dot dalle line sottostanti, look
+                  da indicatore strumento. */}
+              {primaryCrossingY != null && (
+                <ReferenceDot
+                  x={0}
+                  y={primaryCrossingY}
+                  r={4}
+                  fill={COLOR_LINE}
+                  stroke={COLOR_BG}
+                  strokeWidth={2}
+                />
+              )}
               {sessions.map((s) => (
                 <Line
                   key={s.id}
@@ -380,6 +480,72 @@ export default function StartAnalysis({ sessions }: Props) {
             <p className="text-caption mt-1">Usa la barra qui sopra per cercare il momento esatto della partenza.</p>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// Stat box delle finestre -15s/Crossing/+15s. Variante "gold" per il
+// crossing (tinta gold-tenue + bordo gold + label/valore in --gold) cosi'
+// l'occhio vede subito il numero che conta; "neutral" per pre/post.
+// Numero principale in mono 28px tabular per allinearsi al linguaggio
+// cockpit delle altre card.
+function StartStat({
+  label,
+  value,
+  variant,
+}: {
+  label: string;
+  value: number;
+  variant: 'neutral' | 'gold';
+}) {
+  const isGold = variant === 'gold';
+  return (
+    <div
+      className="text-center"
+      style={{
+        background: isGold ? 'rgba(212,175,110,0.06)' : 'rgba(255,255,255,0.012)',
+        border: `1px solid ${isGold ? 'rgba(212,175,110,0.3)' : 'var(--line)'}`,
+        borderRadius: 'var(--radius-cockpit)',
+        padding: '10px 8px',
+      }}
+    >
+      <div
+        style={{
+          fontFamily: 'var(--mono)',
+          fontSize: 9.5,
+          letterSpacing: '0.18em',
+          textTransform: 'uppercase',
+          color: isGold ? 'rgb(var(--gold))' : 'rgb(var(--ink-3))',
+          marginBottom: 6,
+        }}
+      >
+        {label}
+      </div>
+      <div className="flex items-baseline justify-center">
+        <span
+          className="tabular"
+          style={{
+            fontFamily: 'var(--mono)',
+            fontSize: 28,
+            fontWeight: 500,
+            letterSpacing: '-0.02em',
+            color: isGold ? 'rgb(var(--gold))' : 'rgb(var(--ink))',
+            lineHeight: 1,
+          }}
+        >
+          {value.toFixed(1)}
+        </span>
+        <span
+          style={{
+            fontFamily: 'var(--mono)',
+            fontSize: 10,
+            color: 'rgb(var(--ink-3))',
+            marginLeft: 4,
+          }}
+        >
+          kts
+        </span>
       </div>
     </div>
   );
