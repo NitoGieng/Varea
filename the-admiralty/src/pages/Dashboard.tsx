@@ -1795,15 +1795,19 @@ function KpiHero({ label, value, suffix, sub }: KpiHeroProps) {
       </span>
 
       <div className="flex items-start gap-2">
+        {/* Numero principale in DM Serif Display italic — taglio editoriale
+            che contrasta con la mono dei pannelli "strumento" e dichiara la
+            metrica come l'asse principale della Panoramica. La tabular-nums
+            mantiene l'allineamento delle cifre fra le due hero affiancate. */}
         <span
-          className="tabular"
           style={{
-            fontFamily: 'var(--mono)',
+            fontFamily: 'var(--serif)',
+            fontStyle: 'italic',
             fontSize: 64,
-            fontWeight: 500,
-            letterSpacing: '-0.02em',
+            fontWeight: 400,
             color: 'rgb(var(--ink))',
             lineHeight: 1,
+            fontVariantNumeric: 'tabular-nums',
           }}
         >
           {value}
@@ -1910,7 +1914,7 @@ const statLabelStyle: React.CSSProperties = {
   letterSpacing: '0.18em',
   textTransform: 'uppercase',
   color: 'rgb(var(--ink-3))',
-  marginBottom: 8,
+  marginBottom: 6,
 };
 
 const statValueStyle: React.CSSProperties = {
@@ -1930,13 +1934,16 @@ const statUnitStyle: React.CSSProperties = {
   marginLeft: 6,
 };
 
+// Meta riga sotto il numero. Niente min-height: lasciamo che le card si
+// dimensionino sul contenuto effettivo. L'allineamento fra card affiancate
+// e' garantito dalla griglia (grid items stretchano), non da una baseline
+// forzata sulla meta.
 const statMetaStyle: React.CSSProperties = {
   marginTop: 4,
   fontFamily: 'var(--mono)',
   fontSize: 11,
   color: 'rgb(var(--ink-3))',
   fontVariantNumeric: 'tabular-nums',
-  minHeight: '1em',
 };
 
 // Card "volume": metriche di conteggio (numero di manovre). Look neutro,
