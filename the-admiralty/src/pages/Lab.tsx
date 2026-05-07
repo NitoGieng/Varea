@@ -19,7 +19,23 @@ export default function Lab({ sessions, flyThreshold, onFlyThresholdChange, isWi
   return (
     <div className="px-6 lg:px-12 py-8 max-w-[1500px] mx-auto w-full">
       <header className="pb-5">
-        <p className="eyebrow mb-2">Laboratorio</p>
+        {/* Eyebrow cockpit: label mono uppercase + filo --line che corre
+            fino al margine destro. Stesso pattern di Manovre, applicato
+            qui per allineare il linguaggio visivo del Laboratorio. */}
+        <div className="flex items-baseline gap-3.5 mb-3.5">
+          <span
+            style={{
+              fontFamily: 'var(--mono)',
+              fontSize: 10.5,
+              letterSpacing: '0.22em',
+              textTransform: 'uppercase',
+              color: 'rgb(var(--ink-3))',
+            }}
+          >
+            Laboratorio
+          </span>
+          <div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
+        </div>
         <h1 className="font-serif italic text-h2 text-ink leading-none">Traiettorie</h1>
         <p className="text-caption text-ink-muted mt-3 max-w-2xl">
           Seleziona una manovra dal catalogo per analizzare la radiografia XY

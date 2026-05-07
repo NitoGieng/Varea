@@ -139,12 +139,15 @@ export default function ManeuverSpeedChart({
     for (const p of highResTrack) {
       const epoch = parseBackendTimestamp(p.timestamp);
       if (isNaN(epoch) || epoch < startEpoch || epoch > endEpoch) continue;
-      // VMG signed dal backend: positivo = guadagno verso vento. Mantieni il
-      // segno qui (il grafico la traccia attorno a SOG, puo' andare anche
-      // negativa nei +40s di una virata che apre l'angolo). connectNulls
-      // del Recharts gestisce le interruzioni quando la TWA mancava.
+      // VMG signed dal backend: positivo = guadagno verso vento. Per la
+      // sola visualizzazione grafica clampiamo a 0 (Math.max(0, ...)) cosi'
+      // la curva resta leggibile senza scendere a -15/-30 nei +40s di una
+      // virata che apre l'angolo. I valori raw nel report e nelle card
+      // restano signed: questa e' una scelta puramente di asse Y, coerente
+      // col chart Panoramica. connectNulls del Recharts gestisce le
+      // interruzioni quando la TWA mancava.
       const vmgRaw = (p as { vmg_knots?: number | null }).vmg_knots;
-      const vmg = typeof vmgRaw === 'number' && Number.isFinite(vmgRaw) ? vmgRaw : null;
+      const vmg = typeof vmgRaw === 'number' && Number.isFinite(vmgRaw) ? Math.max(0, vmgRaw) : null;
       filtered.push({
         relativeTime: Math.round((epoch - t0) / 1000),
         sog: Number(p.sog_knots) || 0,
@@ -278,7 +281,10 @@ export default function ManeuverSpeedChart({
             domain={[-PRE_WINDOW_S, POST_WINDOW_S]}
           />
           <YAxis
-            domain={['auto', 'auto']}
+            // Baseline pinnata a 0: con la VMG clampata a >=0 in dataPrep
+            // l'asse non deve mai scendere sotto zero, altrimenti riapparirebbe
+            // un grosso vuoto sotto la baseline.
+            domain={[0, 'auto']}
             tick={{ fill: COLOR_TICK, fontSize: 10, fontFamily: 'JetBrains Mono, ui-monospace, monospace' }}
             axisLine={false}
             tickLine={false}
