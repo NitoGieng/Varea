@@ -115,10 +115,7 @@ function ClockInput({ value, onCommit }: { value: string; onCommit: (hms: string
           (e.target as HTMLInputElement).blur();
         }
       }}
-      // .cockpit-time-input gestisce font/colore + override dei separatori
-      // ":" via pseudo-classi WebKit (vedi index.css). Tabular-nums tiene
-      // l'allineamento delle cifre durante l'edit.
-      className="cockpit-time-input tabular"
+      className="py-2 px-4 bg-transparent text-body-lg font-mono tabular font-bold text-ink outline-none"
     />
   );
 }
@@ -311,8 +308,10 @@ export default function StartAnalysis({ sessions }: Props) {
       {/* Card T=0 in stile cockpit: gradient sottile + bordo --line +
           radius-lg. L'header porta il numero di sezione "02" (in --gold-dim,
           marker tipografico tipo capitolo) accanto alla label mono, separato
-          dal corpo da un filo --line. L'input orario vive nel corpo: cifre
-          gold-2 32px, separatori ":" smorzati in --ink-4. */}
+          dal corpo da un filo --line. L'input orario nel corpo torna al
+          look pre-redesign (input nativo HH:MM:SS in mono bold, wrapper
+          neutro con focus-within:border-gold) per non interferire col
+          comportamento del time-picker browser. */}
       <div
         className="mb-6"
         style={{
@@ -354,14 +353,7 @@ export default function StartAnalysis({ sessions }: Props) {
         </div>
 
         <div style={{ padding: '16px' }}>
-          <div
-            className="flex items-center w-fit transition-colors"
-            style={{
-              background: 'rgba(255,255,255,0.02)',
-              border: '1px solid var(--line-2)',
-              borderRadius: 'var(--radius-cockpit)',
-            }}
-          >
+          <div className="flex items-center bg-bg border border-border rounded-md focus-within:border-gold overflow-hidden w-fit transition-colors">
             <ClockInput value={startTimeInput} onCommit={setStartTimeInput} />
           </div>
           <p

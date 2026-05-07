@@ -134,28 +134,4 @@
     50%      { opacity: 0.55; }
   }
 
-  /* Input <input type="time"> in stile cockpit: cifre in --gold-2,
-     separatore ":" smorzato in --ink-4. Le pseudo-classi WebKit sono
-     l'unico modo per dipingere il ":" del time-picker nativo
-     indipendentemente dal colore base dell'input. Cromo/Edge/Safari le
-     supportano; Firefox ignora silenziosamente (il ":" eredita il colore
-     base = gold-2: degradazione accettabile). */
-  .cockpit-time-input {
-    font-family: var(--mono);
-    font-size: 32px;
-    color: rgb(var(--gold-2));
-    background: transparent;
-    border: none;
-    outline: none;
-    padding: 8px 12px;
-  }
-  .cockpit-time-input::-webkit-datetime-edit-text {
-    color: rgb(var(--ink-4));
-    padding: 0 2px;
-  }
-  .cockpit-time-input::-webkit-datetime-edit-hour-field,
-  .cockpit-time-input::-webkit-datetime-edit-minute-field,
-  .cockpit-time-input::-webkit-datetime-edit-second-field {
-    color: rgb(var(--gold-2));
-  }
 }
