@@ -2,6 +2,7 @@ import React, { useState, useMemo, useRef } from 'react';
 import ManeuverSpeedChart from './ManeuverSpeedChart';
 import FlyThresholdControl from '../FlyThresholdControl';
 import NoteEditPopup from '../NoteEditPopup';
+import PolarView from '../PolarView';
 import type { Maneuver, TrackPoint, HighResPoint, TwdTimelinePoint } from '../../types/telemetry';
 import { parseBackendTimestamp } from '../../utils/time';
 import { getFoilingStatus } from '../../utils/foiling';
@@ -73,7 +74,12 @@ interface NotePopupState {
 }
 
 export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresholdChange, isWindEstimated }: ManeuverFootprintProps) {
-  const [mode, setMode] = useState<'FLY' | 'TOUCH'>('FLY');
+  // 'FLY' / 'TOUCH' filtrano la lista manovre. 'POLAR' e' una vista
+  // alternativa (chart polar + stats) che sostituisce il layout list+detail
+  // a parita' di filtro temporale del clock. Lo stato di selezione manovra
+  // sopravvive al toggle: tornando a FLY/TOUCH la card precedente resta
+  // selezionata.
+  const [mode, setMode] = useState<'FLY' | 'TOUCH' | 'POLAR'>('FLY');
   // Selezione per chiave (timestamp) anziche' indice: cambiare filtro
   // FLY/TOUCH o soglia ricostruisce sortedManeuvers e quindi gli indici
   // saltano. La chiave persiste finche' la manovra resta nella lista
@@ -390,7 +396,12 @@ export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresho
         </div>
       )}
 
-      {/* Header controlli FLY/TOUCH + soglia condivisa */}
+      {/* Header controlli FLY/TOUCH/POLAR + soglia condivisa. POLAR e' una
+          vista alternativa (non un filtro): selezionandola si nasconde la
+          lista manovre e il pannello detail e si mostra la polar chart con
+          le statistiche aggregate. Soglia FLY/TOUCH e contatore restano
+          visibili anche in POLAR per coerenza, ma sono inattivi sulla
+          vista. */}
       <div className="px-4 py-3 border-b border-border bg-surface-1 flex items-center justify-between gap-4 flex-wrap">
         <div className="flex bg-bg border border-border rounded-md p-0.5">
           <button
@@ -411,6 +422,25 @@ export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresho
             <span className="w-1.5 h-1.5 rounded-full bg-amber" />
             Manovre Touch
           </button>
+          <button
+            onClick={() => setMode('POLAR')}
+            className={`px-4 py-1.5 text-eyebrow uppercase tracking-eyebrow rounded-sm transition-colors duration-220 flex items-center gap-2 ${
+              mode === 'POLAR' ? 'bg-gold/15 text-gold' : 'text-ink-muted hover:text-ink'
+            }`}
+          >
+            {/* Diamond marker (◈) in SVG: la spec lo richiede esplicitamente
+                per distinguere POLAR (vista) dai due filtri manovre (●). */}
+            <svg width="9" height="9" viewBox="0 0 10 10" aria-hidden>
+              <polygon
+                points="5,0.5 9.5,5 5,9.5 0.5,5"
+                fill={mode === 'POLAR' ? 'rgb(var(--gold))' : 'currentColor'}
+                stroke={mode === 'POLAR' ? 'rgb(var(--gold))' : 'currentColor'}
+                strokeWidth="0.6"
+                fillOpacity={mode === 'POLAR' ? 1 : 0}
+              />
+            </svg>
+            Polar
+          </button>
         </div>
         <div className="flex items-center gap-4">
           <FlyThresholdControl
@@ -418,13 +448,24 @@ export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresho
             onChange={onFlyThresholdChange}
             label="Soglia FLY/TOUCH"
           />
-          <span className="eyebrow">
-            {sortedManeuvers.length} in categoria
-          </span>
+          {mode !== 'POLAR' && (
+            <span className="eyebrow">
+              {sortedManeuvers.length} in categoria
+            </span>
+          )}
         </div>
       </div>
 
       <div className="flex overflow-hidden h-[calc(100vh-340px)] min-h-[600px] max-h-[800px]">
+        {mode === 'POLAR' ? (
+          <PolarView
+            highResTrack={highResTrack}
+            athleteLabel={isMulti ? activeSession?.label : undefined}
+            athleteColor={isMulti ? activeSession?.color : undefined}
+            isWindEstimated={isWindEstimated}
+          />
+        ) : (
+        <>
         {/* Lista laterale */}
         <div className="w-80 border-r border-border overflow-y-auto bg-surface-1 divide-y divide-border z-20">
           {sortedManeuvers.length === 0 ? (
@@ -819,6 +860,8 @@ export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresho
           </div>
 
         </div>
+        </>
+        )}
       </div>
     </div>
   );
