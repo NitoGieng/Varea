@@ -14,6 +14,7 @@ import { assignColor } from '../data/palette';
 import SessionsBar from '../components/SessionsBar';
 import Sidebar, { type View } from '../components/Sidebar';
 import ExportReportModal, { type ExportConfig } from '../components/ExportReportModal';
+import GlossaryModal from '../components/GlossaryModal';
 import TwdSparkline from '../components/charts/TwdSparkline';
 import WindRose from '../components/charts/WindRose';
 import SessionSpeedChart from '../components/charts/SessionSpeedChart';
@@ -75,6 +76,9 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
   // dall'utente (sopravvivono alla chiusura cosi' un secondo export non
   // richiede di riscrivere atleta/note).
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  // Glossario tecnico: modal globale apribile dalla Topbar in qualsiasi
+  // vista. Stateless lato dati — solo il flag di apertura vive qui.
+  const [isGlossaryOpen, setIsGlossaryOpen] = useState(false);
   const [athleteName, setAthleteName] = useState<string>('');
   const [coachNotes, setCoachNotes] = useState<string>('');
 
@@ -867,6 +871,7 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
           hasSession={!!telemetryData}
           onUpload={handleFilesUpload}
           isUploading={isUploading}
+          onOpenGlossary={() => setIsGlossaryOpen(true)}
           // Telltale info: nome del file della sessione attiva. Mostrato
           // a destra della breadcrumb in stile cockpit (mono 10px) insieme
           // alle info di campionamento e fix GPS.
@@ -1286,6 +1291,10 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
           periodSeconds={debouncedRange ? Math.max(0, (debouncedRange.endMs - debouncedRange.startMs) / 1000) : 0}
         />
       )}
+
+      {isGlossaryOpen && (
+        <GlossaryModal onClose={() => setIsGlossaryOpen(false)} />
+      )}
     </div>
   );
 }
@@ -1314,12 +1323,16 @@ interface TopbarProps {
   hasSession: boolean;
   onUpload: (files: FileList) => void;
   isUploading: boolean;
+  // Apertura del modal Glossario tecnico. Disponibile in tutte le viste:
+  // il bottone non dipende dalla presenza di una sessione caricata, e'
+  // un riferimento sempre consultabile.
+  onOpenGlossary: () => void;
   // Telltale info: nome del file della sessione attiva. Quando assente
   // i tre indicatori (FIT/SAMPLE/GPS FIX) non vengono renderizzati.
   sessionFileName?: string;
 }
 
-function Topbar({ viewLabel, onExportPDF, onExportJSON, onExportCSV, hasSession, onUpload, isUploading, sessionFileName }: TopbarProps) {
+function Topbar({ viewLabel, onExportPDF, onExportJSON, onExportCSV, hasSession, onUpload, isUploading, onOpenGlossary, sessionFileName }: TopbarProps) {
   // Ordine voci dropdown: PDF in cima (formato narrativo, target principale
   // per l'allenatore), JSON sotto (dump strutturato per analisi esterna),
   // CSV in coda e solo nella vista Manovre dove i filtri locali definiscono
@@ -1393,6 +1406,38 @@ function Topbar({ viewLabel, onExportPDF, onExportJSON, onExportCSV, hasSession,
       </div>
 
       <div className="flex items-center gap-2 shrink-0 ml-3">
+        {/* Trigger Glossario: bottone terziario in stile cockpit, stesso
+            footprint di "Esporta" (mono 11px, bordo line-2, hover gold).
+            Posizionato prima dell'export per far capire la gerarchia:
+            riferimento prima di azione. Non dipende da hasSession. */}
+        <button
+          type="button"
+          onClick={onOpenGlossary}
+          aria-label="Apri glossario tecnico"
+          className="transition-all duration-220 ease-varea"
+          style={{
+            fontFamily: 'var(--mono)',
+            fontSize: 11,
+            letterSpacing: '0.16em',
+            textTransform: 'uppercase',
+            padding: '8px 14px',
+            borderRadius: 6,
+            border: '1px solid var(--line-2)',
+            background: 'transparent',
+            color: 'rgb(var(--ink-3))',
+            cursor: 'pointer',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.borderColor = 'rgb(var(--ink-3))';
+            e.currentTarget.style.color = 'rgb(var(--ink-2))';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.borderColor = 'var(--line-2)';
+            e.currentTarget.style.color = 'rgb(var(--ink-3))';
+          }}
+        >
+          Glossario
+        </button>
         <ExportMenu items={exportItems} disabled={!hasSession} />
         {/* Bottone primario "+ CARICA .FIT": gold gradient + glow.
             Stile cockpit avionics — il colore testo navy molto scuro per
