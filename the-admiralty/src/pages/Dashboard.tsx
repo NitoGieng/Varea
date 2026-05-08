@@ -1,6 +1,11 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react';
 import type { ReactNode } from 'react';
-import TelemetryMap, { type NoteMarker } from '../components/charts/TelemetryMap';
+import type { NoteMarker } from '../components/charts/TelemetryMap';
+// TelemetryMap importa Plotly (~3 MB minified): split in chunk separato
+// cosi' la Landing e il primo paint non pagano questo peso. Suspense
+// fallback piazzato dove il Map e' renderizzato. L'import-type sopra e'
+// type-only (erased a build) per non bloccare il chunk split.
+const TelemetryMap = lazy(() => import('../components/charts/TelemetryMap'));
 import Maneuvers from './Maneuvers';
 import StartAnalysis from './StartAnalysis';
 import Lab from './Lab';
@@ -1206,7 +1211,16 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
                   </h3>
                 </div>
                 <div ref={overviewMapContainerRef} className="relative h-[600px] w-full bg-bg">
-                  {MapMemoized}
+                  {/* Suspense: alla prima apertura del dashboard scarica
+                      il chunk Plotly. Fallback minimalista (no spinner
+                      animato) per non sovrastimolare l'attesa breve. */}
+                  <Suspense fallback={
+                    <div className="absolute inset-0 flex items-center justify-center text-eyebrow uppercase tracking-eyebrow text-ink-muted">
+                      Caricamento mappa…
+                    </div>
+                  }>
+                    {MapMemoized}
+                  </Suspense>
                   {/* Badge frequenza adattiva: informa l'allenatore della
                       densita' di punti effettivamente renderizzata, utile
                       quando si confronta dettaglio fra finestre temporali

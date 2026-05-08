@@ -1,8 +1,10 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, lazy, Suspense } from 'react';
 import ManeuverSpeedChart from './ManeuverSpeedChart';
 import FlyThresholdControl from '../FlyThresholdControl';
 import NoteEditPopup from '../NoteEditPopup';
-import PolarView from '../PolarView';
+// PolarView trascina con se' Plotly: lazy-load cosi' il main chunk
+// non lo include. Caricato al primo click su tab POLAR.
+const PolarView = lazy(() => import('../PolarView'));
 import type { Maneuver, TrackPoint, HighResPoint, TwdTimelinePoint } from '../../types/telemetry';
 import { parseBackendTimestamp } from '../../utils/time';
 import { getFoilingStatus } from '../../utils/foiling';
@@ -458,12 +460,18 @@ export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresho
 
       <div className="flex overflow-hidden h-[calc(100vh-340px)] min-h-[600px] max-h-[800px]">
         {mode === 'POLAR' ? (
-          <PolarView
-            highResTrack={highResTrack}
-            athleteLabel={isMulti ? activeSession?.label : undefined}
-            athleteColor={isMulti ? activeSession?.color : undefined}
-            isWindEstimated={isWindEstimated}
-          />
+          <Suspense fallback={
+            <div className="flex-1 flex items-center justify-center bg-[#050d1a] text-eyebrow uppercase tracking-eyebrow text-ink-muted">
+              Caricamento polar…
+            </div>
+          }>
+            <PolarView
+              highResTrack={highResTrack}
+              athleteLabel={isMulti ? activeSession?.label : undefined}
+              athleteColor={isMulti ? activeSession?.color : undefined}
+              isWindEstimated={isWindEstimated}
+            />
+          </Suspense>
         ) : (
         <>
         {/* Lista laterale */}
