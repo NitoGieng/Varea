@@ -1,0 +1,25 @@
+{
+  "common": {
+    "load": "Carica",
+    "export": "Esporta",
+    "save": "Salva",
+    "cancel": "Annulla",
+    "delete": "Elimina",
+    "loading": "Caricamento...",
+    "noData": "Nessun dato"
+  },
+  "navigation": {
+    "overview": "Panoramica",
+    "maneuvers": "Manovre",
+    "lab": "Laboratorio",
+    "start": "Start"
+  },
+  "topbar": {
+    "loadFit": "Carica .FIT",
+    "export": "Esporta",
+    "exportPdf": "Esporta PDF",
+    "exportCsv": "Esporta CSV",
+    "exportJson": "Esporta JSON",
+    "glossary": "Glossario"
+  }
+}

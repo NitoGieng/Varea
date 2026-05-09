@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { ComponentType } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
 
 export type View = 'overview' | 'maneuvers' | 'lab' | 'start';
 
@@ -9,17 +10,19 @@ interface Props {
   onNavigate: (v: View) => void;
 }
 
+// Le label sono ricavate via i18n al render: la chiave i18n e' stabile,
+// la stringa visibile cambia con la lingua.
 interface Item {
   id: View;
-  label: string;
+  i18nKey: string;
   Icon: ComponentType;
 }
 
 const items: Item[] = [
-  { id: 'overview', label: 'Panoramica', Icon: CompassIcon },
-  { id: 'maneuvers', label: 'Manovre', Icon: RotateIcon },
-  { id: 'lab', label: 'Laboratorio', Icon: ScatterIcon },
-  { id: 'start', label: 'Start', Icon: FlagIcon },
+  { id: 'overview', i18nKey: 'navigation.overview', Icon: CompassIcon },
+  { id: 'maneuvers', i18nKey: 'navigation.maneuvers', Icon: RotateIcon },
+  { id: 'lab', i18nKey: 'navigation.lab', Icon: ScatterIcon },
+  { id: 'start', i18nKey: 'navigation.start', Icon: FlagIcon },
 ];
 
 // Spring fisicamente coerente: la sidebar e' un "signature moment" della UI,
@@ -38,6 +41,7 @@ const labelVariants = {
 
 export default function Sidebar({ currentView, onNavigate }: Props) {
   const [isHovered, setIsHovered] = useState(false);
+  const { t } = useTranslation();
 
   return (
     <motion.aside
@@ -153,7 +157,7 @@ export default function Sidebar({ currentView, onNavigate }: Props) {
                       color: active ? 'rgb(var(--gold))' : 'rgb(var(--ink-2))',
                     }}
                   >
-                    {item.label}
+                    {t(item.i18nKey)}
                   </motion.span>
                 )}
               </AnimatePresence>

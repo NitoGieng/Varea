@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react';
 import type { ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { NoteMarker } from '../components/charts/TelemetryMap';
 // TelemetryMap importa Plotly (~3 MB minified): split in chunk separato
 // cosi' la Landing e il primo paint non pagano questo peso. Suspense
@@ -864,7 +865,7 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
 
       <div className="flex-1 ml-14 flex flex-col min-w-0">
         <Topbar
-          viewLabel={VIEW_LABELS[currentView]}
+          viewLabelKey={VIEW_LABEL_KEYS[currentView]}
           onExportPDF={() => setIsExportModalOpen(true)}
           onExportJSON={handleDownload}
           onExportCSV={currentView === 'maneuvers' ? handleExportCSVFromTopbar : undefined}
@@ -1303,15 +1304,21 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
 // SOTTO-COMPONENTI UI
 // ============================================================
 
-const VIEW_LABELS: Record<View, string> = {
-  overview: 'Panoramica',
-  maneuvers: 'Manovre',
-  lab: 'Laboratorio',
-  start: 'Start',
+// Chiavi i18n per la breadcrumb del Topbar. La traduzione effettiva avviene
+// dentro Topbar via useTranslation, cosi' il cambio lingua aggiorna il label
+// senza dover propagare il `t` da Dashboard.
+const VIEW_LABEL_KEYS: Record<View, string> = {
+  overview: 'navigation.overview',
+  maneuvers: 'navigation.maneuvers',
+  lab: 'navigation.lab',
+  start: 'navigation.start',
 };
 
 interface TopbarProps {
-  viewLabel: string;
+  // Chiave i18n della vista corrente (es. 'navigation.overview'). Topbar
+  // chiama t() su questa chiave: cambia con la lingua senza re-render forzato
+  // da Dashboard.
+  viewLabelKey: string;
   // Due azioni: dropdown "Esporta" (secondario, bordo gold) che consolida
   // PDF + JSON + CSV, e "+ Carica .FIT" come primario (filled gold). Il
   // dropdown e' disabilitato finche' non c'e' una sessione caricata: tutte
@@ -1332,17 +1339,19 @@ interface TopbarProps {
   sessionFileName?: string;
 }
 
-function Topbar({ viewLabel, onExportPDF, onExportJSON, onExportCSV, hasSession, onUpload, isUploading, onOpenGlossary, sessionFileName }: TopbarProps) {
+function Topbar({ viewLabelKey, onExportPDF, onExportJSON, onExportCSV, hasSession, onUpload, isUploading, onOpenGlossary, sessionFileName }: TopbarProps) {
+  const { t } = useTranslation();
+
   // Ordine voci dropdown: PDF in cima (formato narrativo, target principale
   // per l'allenatore), JSON sotto (dump strutturato per analisi esterna),
   // CSV in coda e solo nella vista Manovre dove i filtri locali definiscono
   // il dataset.
   const exportItems: ExportMenuItem[] = [
-    { label: 'Esporta PDF', onClick: onExportPDF },
-    { label: 'Esporta JSON', onClick: onExportJSON },
+    { label: t('topbar.exportPdf'), onClick: onExportPDF },
+    { label: t('topbar.exportJson'), onClick: onExportJSON },
   ];
   if (onExportCSV) {
-    exportItems.push({ label: 'Esporta CSV', onClick: onExportCSV });
+    exportItems.push({ label: t('topbar.exportCsv'), onClick: onExportCSV });
   }
 
   // Stile mono comune ai tre telltale: colore var(--ink-3), uppercase con
@@ -1389,7 +1398,7 @@ function Topbar({ viewLabel, onExportPDF, onExportJSON, onExportCSV, hasSession,
           className="font-serif italic truncate"
           style={{ fontSize: 17, color: 'rgb(var(--ink))', lineHeight: 1 }}
         >
-          {viewLabel}
+          {t(viewLabelKey)}
         </span>
 
         {/* Telltale a destra della breadcrumb. Visibili solo con sessione
@@ -1406,6 +1415,10 @@ function Topbar({ viewLabel, onExportPDF, onExportJSON, onExportCSV, hasSession,
       </div>
 
       <div className="flex items-center gap-2 shrink-0 ml-3">
+        {/* Selettore lingua IT · EN: piccolo, in mono uppercase, prima del
+            Glossario. La scelta viene persistita in localStorage dal
+            language detector di i18next (chiave varea_language). */}
+        <LanguageSwitcher />
         {/* Trigger Glossario: bottone terziario in stile cockpit, stesso
             footprint di "Esporta" (mono 11px, bordo line-2, hover gold).
             Posizionato prima dell'export per far capire la gerarchia:
@@ -1413,7 +1426,7 @@ function Topbar({ viewLabel, onExportPDF, onExportJSON, onExportCSV, hasSession,
         <button
           type="button"
           onClick={onOpenGlossary}
-          aria-label="Apri glossario tecnico"
+          aria-label={t('topbar.glossary')}
           className="transition-all duration-220 ease-varea"
           style={{
             fontFamily: 'var(--mono)',
@@ -1436,7 +1449,7 @@ function Topbar({ viewLabel, onExportPDF, onExportJSON, onExportCSV, hasSession,
             e.currentTarget.style.color = 'rgb(var(--ink-3))';
           }}
         >
-          Glossario
+          {t('topbar.glossary')}
         </button>
         <ExportMenu items={exportItems} disabled={!hasSession} />
         {/* Bottone primario "+ CARICA .FIT": gold gradient + glow.
@@ -1460,7 +1473,7 @@ function Topbar({ viewLabel, onExportPDF, onExportJSON, onExportCSV, hasSession,
             boxShadow: '0 0 14px rgba(212, 175, 110, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.25)',
           }}
         >
-          {isUploading ? 'Caricamento…' : '+ Carica .FIT'}
+          {isUploading ? t('common.loading') : `+ ${t('topbar.loadFit')}`}
           <input
             type="file"
             multiple
@@ -1495,6 +1508,7 @@ interface ExportMenuProps {
 function ExportMenu({ items, disabled }: ExportMenuProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const { t } = useTranslation();
 
   useEffect(() => {
     if (!open) return;
@@ -1550,7 +1564,7 @@ function ExportMenu({ items, disabled }: ExportMenuProps) {
           e.currentTarget.style.color = 'rgb(var(--ink-2))';
         }}
       >
-        Esporta
+        {t('topbar.export')}
         <svg className={`w-3 h-3 transform transition-transform duration-220 ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
         </svg>
@@ -1594,6 +1608,72 @@ function ExportMenu({ items, disabled }: ExportMenuProps) {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// Selettore lingua "IT · EN" per la Topbar. Stile mono uppercase coerente
+// con i telltale, attivo in gold con underline, inattivo in ink-3.
+// La persistenza e' gestita dal language detector di i18next, qui ci limitiamo
+// a chiamare changeLanguage e leggere i18n.resolvedLanguage per evidenziare
+// la lingua corrente.
+function LanguageSwitcher() {
+  const { i18n } = useTranslation();
+  const current = (i18n.resolvedLanguage ?? i18n.language ?? 'it').slice(0, 2);
+
+  const baseStyle: React.CSSProperties = {
+    fontFamily: 'var(--mono)',
+    fontSize: 10.5,
+    letterSpacing: '0.18em',
+    textTransform: 'uppercase',
+    padding: '4px 8px',
+    background: 'transparent',
+    cursor: 'pointer',
+    transition: 'color 220ms var(--ease-varea, ease), border-color 220ms var(--ease-varea, ease)',
+  };
+
+  const renderButton = (lang: 'it' | 'en') => {
+    const active = current === lang;
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          if (current !== lang) i18n.changeLanguage(lang);
+        }}
+        aria-label={lang === 'it' ? 'Italiano' : 'English'}
+        aria-pressed={active}
+        style={{
+          ...baseStyle,
+          color: active ? 'rgb(var(--gold))' : 'rgb(var(--ink-3))',
+          borderBottom: active ? '1px solid rgb(var(--gold))' : '1px solid transparent',
+        }}
+        onMouseEnter={(e) => {
+          if (!active) e.currentTarget.style.color = 'rgb(var(--ink-2))';
+        }}
+        onMouseLeave={(e) => {
+          if (!active) e.currentTarget.style.color = 'rgb(var(--ink-3))';
+        }}
+      >
+        {lang.toUpperCase()}
+      </button>
+    );
+  };
+
+  return (
+    <div className="flex items-center" aria-label="Selettore lingua">
+      {renderButton('it')}
+      <span
+        aria-hidden
+        style={{
+          fontFamily: 'var(--mono)',
+          fontSize: 10.5,
+          color: 'rgb(var(--ink-4))',
+          padding: '0 2px',
+        }}
+      >
+        ·
+      </span>
+      {renderButton('en')}
     </div>
   );
 }

@@ -1,0 +1,25 @@
+{
+  "common": {
+    "load": "Load",
+    "export": "Export",
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "loading": "Loading...",
+    "noData": "No data"
+  },
+  "navigation": {
+    "overview": "Overview",
+    "maneuvers": "Maneuvers",
+    "lab": "Lab",
+    "start": "Start"
+  },
+  "topbar": {
+    "loadFit": "Load .FIT",
+    "export": "Export",
+    "exportPdf": "Export PDF",
+    "exportCsv": "Export CSV",
+    "exportJson": "Export JSON",
+    "glossary": "Glossary"
+  }
+}

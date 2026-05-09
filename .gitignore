@@ -235,6 +235,9 @@ data/cache/
 !the-admiralty/tsconfig.json
 !the-admiralty/tsconfig.app.json
 !the-admiralty/tsconfig.node.json
+# Bundle traduzioni i18n: vivono nel repo, vengono import-ate da src/i18n.ts
+!the-admiralty/src/locales/
+!the-admiralty/src/locales/*.json
 
 # Streamlit (se lo userai per la dashboard)
 .streamlit/config.toml
