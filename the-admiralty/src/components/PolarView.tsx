@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import PolarChart from './charts/PolarChart';
 import PolarStatsPanel from './PolarStatsPanel';
 import type { HighResPoint } from '../types/telemetry';
@@ -60,13 +60,22 @@ export default function PolarView({
   const tooFewPoints = polarData.valid.length < POLAR_MIN_VALID_POINTS;
   const intervalTooShort = intervalSec > 0 && intervalSec < minIntervalSec;
 
+  // Stato per il tooltip del help icon. Mouse enter/leave sono sul
+  // wrapper del bottone: cosi' il movimento mouse->tooltip non e'
+  // possibile (pointer-events:none) e il tooltip si chiude in modo
+  // pulito quando il cursore lascia l'icona.
+  const [helpOpen, setHelpOpen] = useState(false);
+
   const windSourceLabel = isWindEstimated
     ? 'Calcolata su vento stimato da GPS'
     : 'Calcolata su vento Stormglass';
 
   return (
     <div className="flex-1 flex flex-col bg-surface-1 overflow-hidden">
-      {/* Header polar: titolo + disclaimer fonte vento + atleta in multi */}
+      {/* Header polar: titolo + disclaimer fonte vento + (a destra)
+          atleta in multi e help icon. Cluster destro raggruppato in
+          un unico ml-auto cosi' help resta sempre l'ultimo elemento
+          a prescindere dalla presenza di athleteLabel. */}
       <div className="px-6 py-3 border-b border-border bg-surface-1 shrink-0 flex items-baseline gap-3 flex-wrap">
         <span className="text-eyebrow uppercase tracking-eyebrow text-ink-muted">
           Diagramma polare
@@ -80,12 +89,119 @@ export default function PolarView({
         >
           {windSourceLabel}
         </span>
-        {athleteLabel && athleteColor && (
-          <span className="ml-auto flex items-center gap-2 text-eyebrow uppercase tracking-eyebrow text-ink-muted">
-            <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: athleteColor }} />
-            {athleteLabel}
-          </span>
-        )}
+        <div className="ml-auto flex items-center gap-3" style={{ alignSelf: 'center' }}>
+          {athleteLabel && athleteColor && (
+            <span className="flex items-center gap-2 text-eyebrow uppercase tracking-eyebrow text-ink-muted">
+              <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: athleteColor }} />
+              {athleteLabel}
+            </span>
+          )}
+          {/* Help icon: cerchio 18px, hover gold. Il tooltip e'
+              renderizzato in absolute sotto l'icona, allineato a
+              destra cosi' non sfora a destra del viewport. */}
+          <div
+            className="relative"
+            onMouseEnter={() => setHelpOpen(true)}
+            onMouseLeave={() => setHelpOpen(false)}
+          >
+            <button
+              type="button"
+              aria-label="Come leggere la polar chart"
+              style={{
+                width: 18,
+                height: 18,
+                borderRadius: '50%',
+                border: '1px solid rgb(var(--ink-3))',
+                background: 'transparent',
+                color: 'rgb(var(--ink-3))',
+                fontFamily: 'var(--mono)',
+                fontSize: 11,
+                lineHeight: 1,
+                cursor: 'help',
+                transition: 'border-color 150ms ease, color 150ms ease',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 0,
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = 'rgb(var(--gold))';
+                e.currentTarget.style.color = 'rgb(var(--gold))';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = 'rgb(var(--ink-3))';
+                e.currentTarget.style.color = 'rgb(var(--ink-3))';
+              }}
+            >
+              ?
+            </button>
+            <div
+              role="tooltip"
+              aria-hidden={!helpOpen}
+              style={{
+                position: 'absolute',
+                top: 'calc(100% + 8px)',
+                right: 0,
+                width: 360,
+                maxWidth: 360,
+                padding: 16,
+                background: 'rgb(var(--surface-2))',
+                border: '1px solid var(--line-2)',
+                borderRadius: 'var(--radius-lg)',
+                boxShadow: '0 12px 28px rgba(0, 0, 0, 0.45)',
+                opacity: helpOpen ? 1 : 0,
+                pointerEvents: 'none',
+                transition: 'opacity 150ms ease',
+                zIndex: 10000,
+                fontFamily: 'var(--sans)',
+                fontSize: 12.5,
+                lineHeight: 1.5,
+                color: 'rgb(var(--ink-2))',
+              }}
+            >
+              <div
+                className="font-serif italic"
+                style={{
+                  fontSize: 14,
+                  color: 'rgb(var(--ink))',
+                  marginBottom: 8,
+                  lineHeight: 1.2,
+                }}
+              >
+                Come leggere la polar chart
+              </div>
+              <p style={{ margin: 0 }}>
+                La polar chart mostra la performance dell&apos;atleta a tutti
+                gli angoli rispetto al vento. Il vento soffia dall&apos;alto
+                verso il basso del grafico (0° = controvento puro,
+                180° = poppa).
+              </p>
+              <p style={{ margin: '10px 0 0 0' }}>
+                L&apos;asse radiale rappresenta la velocità: più un punto è
+                lontano dal centro, più la barca era veloce a quell&apos;angolo.
+              </p>
+              <p style={{ margin: '10px 0 0 0' }}>
+                La curva dorata (P90) indica la performance massima
+                sostenibile: per ogni angolo, la velocità raggiunta nel
+                90% dei casi. È la curva di riferimento per valutare il
+                potenziale dell&apos;atleta.
+              </p>
+              <p style={{ margin: '10px 0 0 0' }}>
+                La linea grigia indica la media: la velocità tipica a
+                quell&apos;angolo, utile per capire la consistenza.
+              </p>
+              <p style={{ margin: '10px 0 0 0' }}>
+                I punti grigi in trasparenza sono tutti i campioni reali
+                della sessione — danno un&apos;idea della dispersione.
+              </p>
+              <p style={{ margin: '10px 0 0 0' }}>
+                Per ottimizzare le performance: angolo di bolina dove la
+                VMG è massima (tipicamente 40°-50°) e angolo di poppa
+                dove la VMG in poppa è massima (tipicamente 140°-150°).
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Sotto-header con la nota di interpretazione: stessa riga del

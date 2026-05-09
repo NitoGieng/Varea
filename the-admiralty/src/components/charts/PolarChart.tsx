@@ -35,14 +35,11 @@ const GOLD = 'rgb(212,175,110)';
 function buildScatterTrace(points: PolarValidPoint[], andatura: string, color: string) {
   const r: number[] = [];
   const theta: number[] = [];
-  const text: string[] = [];
   for (const p of points) {
     r.push(p.sog);
     theta.push(p.twa);
-    text.push(`TWA ${p.twa.toFixed(0)}° • ${p.sog.toFixed(1)} kts`);
     r.push(p.sog);
     theta.push((360 - p.twa) % 360);
-    text.push(`TWA ${p.twa.toFixed(0)}° • ${p.sog.toFixed(1)} kts`);
   }
   return {
     type: 'scatterpolar',
@@ -50,8 +47,12 @@ function buildScatterTrace(points: PolarValidPoint[], andatura: string, color: s
     name: andatura || 'Dati sessione',
     r,
     theta,
-    text,
-    hoverinfo: 'text',
+    // hovertemplate al posto di hoverinfo:'text': cosi' la formattazione
+    // sta nello stile invece che in stringhe pre-buildate, e <extra></extra>
+    // rimuove il box laterale col nome trace ("polar") che e' inutile
+    // qui — l'andatura e' gia' codificata dal colore.
+    hovertemplate:
+      'TWA %{theta:.1f}°<br>SOG %{r:.1f} kts<extra></extra>',
     marker: {
       size: 3,
       color,
@@ -74,25 +75,37 @@ function buildCurveTrace(
   color: string,
   width: number,
   name: string,
+  // Etichetta usata nell'hover: "P90", "media" — concatenata in
+  // hovertemplate. Tenuta separata dal `name` (legenda) cosi' la legenda
+  // resta breve ma il tooltip e' descrittivo.
+  hoverLabel: string,
   fill?: boolean,
 ) {
   const r: (number | null)[] = [];
   const theta: number[] = [];
+  // customdata: count del bucket d'origine, replicato per ogni vertice
+  // della curva (dx + sx + chiusura). Plotly espone %{customdata} in
+  // hovertemplate, cosi' mostriamo il numero di punti su cui la
+  // statistica e' calcolata — lettura piu' onesta della curva.
+  const customdata: number[] = [];
   // Lato destro: 0° -> 180° (theta crescente)
   for (let i = 0; i < buckets.length; i++) {
     r.push(values[i]);
     theta.push(buckets[i].centerDeg);
+    customdata.push(buckets[i].count);
   }
   // Lato sinistro speculare: rispecchia in ordine inverso, cosi' la
   // linea si chiude attorno alla poppa (180°) e torna in cima (360°).
   for (let i = buckets.length - 1; i >= 0; i--) {
     r.push(values[i]);
     theta.push(360 - buckets[i].centerDeg);
+    customdata.push(buckets[i].count);
   }
   // Chiudi il loop riprendendo il primo punto (specchiato a 360°).
   if (values[0] != null) {
     r.push(values[0]);
     theta.push(360);
+    customdata.push(buckets[0].count);
   }
 
   const trace: Record<string, unknown> = {
@@ -101,14 +114,24 @@ function buildCurveTrace(
     name,
     r,
     theta,
+    customdata,
     line: { color, width, shape: 'spline', smoothing: 0.5 },
-    hoverinfo: 'r+theta+name',
+    // hovertemplate esplicito + <extra></extra> per togliere il "polar"
+    // generico che Plotly mostrava di default.
+    hovertemplate:
+      `<b>TWA %{theta:.0f}°</b><br>` +
+      `SOG ${hoverLabel}: %{r:.1f} kts<br>` +
+      `n %{customdata} pt<extra></extra>`,
     connectgaps: false,
     legendgroup: name,
   };
   if (fill) {
     trace.fill = 'toself';
     trace.fillcolor = 'rgba(212,175,110,0.08)';
+    // hoveron:'points' stacca l'hover dalla zona riempita: cosi' passare
+    // dentro la "vasca" oro non mostra piu' un tooltip generico, ma solo
+    // il bordo (curva P90) intercetta il cursore e mostra il dato.
+    trace.hoveron = 'points';
   }
   return trace;
 }
@@ -134,8 +157,8 @@ export default function PolarChart({ rawPoints, buckets, smoothedP90, maxSog }: 
     }
 
     const avgValues = buckets.map(b => b.sogAvg);
-    traces.push(buildCurveTrace(buckets, avgValues, INK_3, 1, 'Media'));
-    traces.push(buildCurveTrace(buckets, smoothedP90, GOLD, 2.5, 'Performance (P90)', true));
+    traces.push(buildCurveTrace(buckets, avgValues, INK_3, 1, 'Media', 'media'));
+    traces.push(buildCurveTrace(buckets, smoothedP90, GOLD, 2.5, 'Performance (P90)', 'P90', true));
 
     return traces;
   }, [rawPoints, buckets, smoothedP90]);
@@ -179,6 +202,10 @@ export default function PolarChart({ rawPoints, buckets, smoothedP90, maxSog }: 
     },
     margin: { t: 20, r: 20, b: 60, l: 20 },
     autosize: true,
+    // closest: il tooltip va al singolo punto piu' vicino al cursore.
+    // Combinato con `hoveron:'points'` sul P90 fillato, evita il caso
+    // "passi sull'area dorata e ti dice solo polar".
+    hovermode: 'closest',
     hoverlabel: {
       bgcolor: 'rgba(5,19,35,0.95)',
       bordercolor: 'rgba(212,175,110,0.4)',
