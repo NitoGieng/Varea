@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { SessionData } from '../types/telemetry';
 
 interface Props {
@@ -26,6 +27,7 @@ export default function SessionsBar({
   onAddFiles,
   isUploading,
 }: Props) {
+  const { t } = useTranslation();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
 
@@ -54,7 +56,7 @@ export default function SessionsBar({
     >
       <div className="max-w-[1500px] mx-auto flex items-center gap-2 flex-wrap">
         <span className="eyebrow mr-2 shrink-0">
-          Sessioni · {sessions.length}
+          {t('sessionsBar.sessionsCount', { count: sessions.length })}
         </span>
 
         {sessions.map((s) => {
@@ -85,12 +87,12 @@ export default function SessionsBar({
                 style={{ backgroundColor: s.color }}
                 title={
                   s.status === 'ready'
-                    ? 'Imposta come sessione attiva'
+                    ? t('sessionsBar.setActiveTitle')
                     : s.status === 'loading'
-                    ? 'Analisi in corso'
-                    : s.error ?? 'Errore'
+                    ? t('sessionsBar.loadingLabel')
+                    : s.error ?? t('sessionsBar.errorLabel')
                 }
-                aria-label="Attiva sessione"
+                aria-label={t('sessionsBar.activateAria')}
               >
                 {initial}
                 {s.status === 'loading' && (
@@ -126,7 +128,7 @@ export default function SessionsBar({
                     setEditValue(s.label);
                   }}
                   className="truncate max-w-[140px] text-body text-ink hover:text-gold transition-colors duration-220 text-left px-1"
-                  title={`${s.fileName} — clic per rinominare`}
+                  title={t('sessionsBar.renameTitle', { fileName: s.fileName })}
                 >
                   {s.label}
                 </button>
@@ -135,8 +137,8 @@ export default function SessionsBar({
               <button
                 onClick={() => onToggleVisible(s.id)}
                 className="text-ink-muted hover:text-ink transition-colors duration-220 p-1 rounded-full"
-                title={s.visible ? 'Nascondi dai grafici' : 'Mostra nei grafici'}
-                aria-label="Toggle visibilita'"
+                title={s.visible ? t('sessionsBar.hideTitle') : t('sessionsBar.showTitle')}
+                aria-label={t('sessionsBar.toggleVisibleAria')}
               >
                 {s.visible ? (
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
@@ -153,8 +155,8 @@ export default function SessionsBar({
               <button
                 onClick={() => onRemove(s.id)}
                 className="text-ink-muted hover:text-terra transition-colors duration-220 p-1 rounded-full"
-                title="Rimuovi sessione"
-                aria-label="Rimuovi"
+                title={t('sessionsBar.removeTitle')}
+                aria-label={t('sessionsBar.removeAria')}
               >
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -169,7 +171,7 @@ export default function SessionsBar({
             isUploading ? 'opacity-70 cursor-wait' : ''
           }`}
         >
-          {isUploading ? '…' : '+ Aggiungi'}
+          {isUploading ? '…' : t('sessionsBar.addButton')}
           <input
             type="file"
             multiple

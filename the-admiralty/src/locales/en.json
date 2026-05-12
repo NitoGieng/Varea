@@ -5,8 +5,18 @@
     "save": "Save",
     "cancel": "Cancel",
     "delete": "Delete",
+    "close": "Close",
+    "edit": "Edit",
+    "new": "New",
     "loading": "Loading...",
-    "noData": "No data"
+    "loadingMap": "Loading map…",
+    "noData": "No data",
+    "insufficientData": "insufficient data",
+    "na": "n/a",
+    "online": "Online",
+    "language": "Language selector",
+    "italian": "Italian",
+    "english": "English"
   },
   "navigation": {
     "overview": "Overview",
@@ -15,11 +25,502 @@
     "start": "Start"
   },
   "topbar": {
+    "brand": "Varea · Telemetry",
     "loadFit": "Load .FIT",
     "export": "Export",
     "exportPdf": "Export PDF",
     "exportCsv": "Export CSV",
     "exportJson": "Export JSON",
-    "glossary": "Glossary"
+    "glossary": "Glossary",
+    "themeToggle": "Toggle theme",
+    "themeAria": "Toggle theme",
+    "telltaleSample": "SAMPLE 1Hz",
+    "telltaleGpsFix": "GPS FIX 3D"
+  },
+  "loading": {
+    "analyzing": "Analyzing session…",
+    "analyzingHint": "This may take a few seconds.",
+    "failed": "Analysis failed.",
+    "failedHint": "Make sure the backend is running and reload to retry.",
+    "noSession": "No active session. Reload the page to start a new analysis."
+  },
+  "overview": {
+    "currentSession": "Current session",
+    "trueWind": "True wind",
+    "twdSuffix": "°TWD",
+    "windRotation": "Wind shift — session",
+    "windEstimatedTitle": "Wind inferred from GPS tracks: Stormglass not available for this session",
+    "windObservedTitle": "Wind from Stormglass satellite observation",
+    "estimatedFromGps": "Estimated from GPS",
+    "fromStormglass": "From Stormglass",
+    "windEstimatedHeader": "Wind estimated from GPS.",
+    "windEstimatedDescription": "Stormglass was not available for this session: the wind direction (TWD) and all derived metrics — points of sail, TWA, VMG — are inferred from heuristics on your GPS tracks, not from satellite observation. Expect a larger margin of error.",
+    "peakSpeed": "Peak speed",
+    "avgSpeed": "Average speed",
+    "totalDistance": "Total distance {{value}} NM",
+    "highConsistency": "High consistency",
+    "maneuversVolume": "Maneuvers · volume",
+    "speedByPointOfSail": "Speed by point of sail",
+    "tacks": "Tacks",
+    "gybes": "Gybes",
+    "upwind": "Upwind",
+    "beamReach": "Beam reach",
+    "downwind": "Downwind",
+    "vmg": "Velocity Made Good",
+    "vmgUpwind": "VMG Upwind",
+    "vmgBroad": "VMG Broad",
+    "avgUpwindSpeed": "Avg upwind speed",
+    "avgBroadSpeed": "Avg broad speed",
+    "peakLabel": "peak: {{value}} kts",
+    "insufficientForComparison": "Insufficient data for comparison.",
+    "percentOfTime": "{{value}}% of time",
+    "ratePerHour": "{{value}}/h",
+    "sessionSpeed": "Speed — session",
+    "clickToAddNote": "Click to add a note",
+    "gpsTrack": "GPS track",
+    "filteredSegment": "filtered segment"
+  },
+  "filters": {
+    "temporal": "Time filter",
+    "applied": "Applied to maps, tables and charts.",
+    "relative": "Relative",
+    "clock": "Clock",
+    "from": "From",
+    "to": "To",
+    "hoursAria": "Hours",
+    "minutesAria": "Minutes",
+    "secondsAria": "Seconds"
+  },
+  "statusStrip": {
+    "noSession": "— no session loaded —",
+    "live": "Live session",
+    "duration": "Duration",
+    "distance": "Dist",
+    "tws": "TWS",
+    "twd": "TWD",
+    "stormglass": "Stormglass",
+    "gpsFallback": "GPS fallback",
+    "sync": "Sync"
+  },
+  "sessionsBar": {
+    "noSessions": "No sessions",
+    "addAria": "Add sessions",
+    "addTitle": "Load more .FIT files",
+    "addButton": "+ Add",
+    "removeAria": "Remove",
+    "removeTitle": "Remove session",
+    "renameAria": "Rename session",
+    "renameTitle": "{{fileName}} — click to rename",
+    "toggleVisibleAria": "Toggle visibility",
+    "hideTitle": "Hide from charts",
+    "showTitle": "Show in charts",
+    "setActiveTitle": "Set as active session",
+    "activateAria": "Activate session",
+    "sessionsCount": "Sessions · {{count}}",
+    "loadingLabel": "Analyzing",
+    "errorLabel": "Error",
+    "errorTitle": "Analysis error: {{message}}"
+  },
+  "maneuvers": {
+    "catalog": "Maneuver catalog",
+    "registry": "Registry",
+    "caption": "v.in / v.min / v.out · TTR 50% · ΔV",
+    "athlete": "Athlete",
+    "allAthletes": "All athletes",
+    "type": "Type",
+    "allTypes": "All",
+    "allManeuvers": "All maneuvers",
+    "result": "Result",
+    "all": "All",
+    "fly": "Fly",
+    "touch": "Touch",
+    "athleteInfo": "Athlete · Info",
+    "info": "Info",
+    "maneuver": "Maneuver",
+    "vIn": "V.in",
+    "vMin": "V.min",
+    "vOut": "V.out",
+    "duration": "Duration",
+    "ttr": "TTR (50%)",
+    "deltaV": "ΔV",
+    "tack": "Tack",
+    "gybe": "Gybe",
+    "noResults": "No maneuvers match these filters.",
+    "resetFilters": "Reset filters",
+    "page": "Page",
+    "of": "of",
+    "prev": "← Prev",
+    "next": "Next →",
+    "leg": "Leg {{start}} — {{end}}",
+    "vmg": "VMG",
+    "maneuversCount_one": "{{count}} maneuver",
+    "maneuversCount_other": "{{count}} maneuvers",
+    "instantSpeed": "Instant-by-instant speed",
+    "closeAria": "Close",
+    "vmgTooltipMain": "Average leg VMG (magnitude, point-of-sail agnostic).",
+    "vmgTooltipEstimated": "Computed on GPS-estimated wind.",
+    "vmgTooltipObserved": "Computed on Stormglass-observed wind.",
+    "target": "Target {{value}}",
+    "searchSingle": "Search maneuver…",
+    "searchMulti": "Search athlete or maneuver…",
+    "tooltipVIn": "Entry speed into the maneuver",
+    "tooltipVMin": "Lowest speed during the maneuver",
+    "tooltipVOut": "Exit speed from the maneuver",
+    "tooltipTtr": "Time to recover 50% of the speed lost",
+    "tooltipDeltaV": "Difference between entry and exit speed"
+  },
+  "start": {
+    "title": "Start analysis",
+    "gunshot": "Gun",
+    "tacticalWindow": "Tactical window of 2 minutes pre-start and 1 minute post-start around the gun.",
+    "ghosting": "Ghosting of {{count}} athletes on shared T=0.",
+    "exactTime": "Exact T=0 time (the gun)",
+    "alignedExplanation": "All athletes are aligned to this instant.",
+    "fillExplanation": "Enter the actual time when the race committee fired the start.",
+    "outsideWindow": "— outside window",
+    "minus15": "-15s",
+    "crossing": "Crossing",
+    "plus15": "+15s",
+    "noVisibleSession": "No visible session.",
+    "noGpsData": "No GPS data at this time.",
+    "useBarToFind": "Use the bar above to find the exact start moment.",
+    "gunshotMoment": "THE GUN MOMENT",
+    "secondsToStart": "{{value}}s to start",
+    "secondsOfRace": "+{{value}}s of race",
+    "startRefLine": "START · T0",
+    "startTick": "START"
+  },
+  "speedChart": {
+    "maneuverTick": "MANEUVER",
+    "tackChange": "TACK CHANGE",
+    "beforeSec": "{{value}}s before",
+    "noHighResData": "No high-resolution data in this window.",
+    "noSpeedData": "No speed data available.",
+    "vmgEstimatedTitle": "VMG computed on GPS-estimated wind (Stormglass unavailable)",
+    "vmgObservedTitle": "VMG computed on Stormglass-observed wind",
+    "vmgEstimatedPill": "GPS estimated",
+    "vmgObservedPill": "Stormglass"
+  },
+  "footprint": {
+    "noVisibleSession": "No visible session",
+    "flyManeuvers": "Fly maneuvers",
+    "touchManeuvers": "Touch maneuvers",
+    "polar": "Polar",
+    "flyTouchThreshold": "FLY/TOUCH threshold",
+    "inCategory": "{{count}} in category",
+    "loadingPolar": "Loading polar…",
+    "noManeuver": "No maneuver",
+    "velMin": "Min speed",
+    "velIn": "Entry speed",
+    "velOut": "Exit speed",
+    "maneuverWithStatus": "{{status}} maneuver",
+    "maneuverTime": "Maneuver time",
+    "previousLeg": "Previous leg",
+    "coordinates": "Coordinates",
+    "legDistance": "Leg {{value}} NM",
+    "start": "Start",
+    "end": "End",
+    "incompleteTrajectory": "Trajectory incomplete for this segment."
+  },
+  "lab": {
+    "title": "Lab",
+    "trajectories": "Trajectories",
+    "polar": "Polar",
+    "hint": "Pick a maneuver from the catalog to inspect the XY trace and the instant-by-instant speed."
+  },
+  "landing": {
+    "telemetryAnalytics": "Telemetry analytics",
+    "description": "Advanced analysis of sailing and windsurf sessions from GPS telemetry. True wind, points of sail, maneuvers, VMG.",
+    "startAnalysis": "Start analysis",
+    "backgroundTitle": "Animated waves"
+  },
+  "notes": {
+    "panelTitle": "Coach notes",
+    "empty": "No notes yet. Click on the chart or the map to add one.",
+    "edit": "Edit",
+    "new": "New",
+    "editAria": "Edit note",
+    "newAria": "New note",
+    "placeholder": "Write an observation…",
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "deleteTitle": "Delete note",
+    "editTitle": "Edit note"
+  },
+  "exportModal": {
+    "eyebrow": "Export",
+    "title": "Export PDF report",
+    "subtitle": "Configure the parameters before generating the document. Data will be filtered to the currently selected time window.",
+    "athleteLabel": "Athlete name",
+    "athletePlaceholder": "E.g. John Smith",
+    "flyThresholdLabel": "Foiling threshold (kts)",
+    "flyThresholdHelp": "SOG above which the rider is considered foiling. Default {{value}} kts.",
+    "coachNotesLabel": "Coach notes",
+    "coachNotesPlaceholder": "Observations, goals, focus points for the next session...",
+    "shortPeriodWarningTitle": "Very short period:",
+    "shortPeriodWarningBody": "you selected less than {{seconds}} seconds. Aggregate metrics (VMG, % foiling, maneuver percentiles) will not be very meaningful.",
+    "confirm": "Generate PDF",
+    "cancel": "Cancel"
+  },
+  "polar": {
+    "howToReadTitle": "How to read the polar chart",
+    "howToReadIntro": "The polar chart shows your speed (SOG) as a function of the angle to the wind (TWA).",
+    "howToReadAxis": "0° at the top is the wind direction; the farther from the centre, the faster.",
+    "howToReadColors": "Colours separate Upwind, Beam reach and Broad/Downwind.",
+    "howToReadP90": "The P90 curve highlights the top edge of performance: the fastest 10% for each TWA.",
+    "zoneBolinaStretta": "Close-hauled",
+    "zoneBolina": "Upwind",
+    "zoneBolinaLarga": "Wide upwind",
+    "zoneTraverso": "Beam reach",
+    "zoneLasco": "Broad reach",
+    "zonePoppa": "Run",
+    "helpIconAria": "Polar help"
+  },
+  "polarView": {
+    "polarChart": "Polar diagram",
+    "performance": "Performance",
+    "windEstimated": "Computed on GPS-estimated wind",
+    "windObserved": "Computed on Stormglass wind",
+    "helpAria": "How to read the polar chart",
+    "helpTitle": "How to read the polar chart",
+    "helpP1": "The polar chart shows the athlete's performance at every angle to the wind. The wind blows from the top to the bottom of the chart (0° = directly upwind, 180° = directly downwind).",
+    "helpP2": "The radial axis represents speed: the farther a point is from the centre, the faster the boat was at that angle.",
+    "helpP3": "The gold curve (P90) marks sustainable peak performance: for each angle, the speed reached in 90% of cases. It's the reference curve to assess the athlete's potential.",
+    "helpP4": "The grey line is the mean: the typical speed at that angle — useful to gauge consistency.",
+    "helpP5": "Translucent grey dots are every real sample of the session — they hint at the spread.",
+    "helpP6": "To optimise performance: the upwind angle where VMG peaks (typically 40°-50°) and the downwind angle where downwind VMG peaks (typically 140°-150°).",
+    "interpretationNote": "Polar quality depends on TWD estimation accuracy. With shifty wind, interpret with caution.",
+    "intervalTooShort": "Selected interval is short ({{minutes}} min): the polar may not be representative.",
+    "insufficientDataTitle": "Insufficient data",
+    "insufficientDataBody": "{{count}} valid points in the selected window (at least {{min}} required). Pick a wider interval."
+  },
+  "polarPanel": {
+    "vmgOptimal": "Optimal VMG",
+    "timeDistribution": "Time distribution",
+    "totalPoints": "Total points",
+    "speedByZone": "Speed by zone",
+    "zone": "Zone",
+    "max": "Max",
+    "p90": "P90",
+    "n": "N"
+  },
+  "polarChart": {
+    "scatterName": "Session data",
+    "groupBolina": "Upwind",
+    "groupTraverso": "Beam reach",
+    "groupLascoPoppa": "Broad reach / Run",
+    "groupOther": "Other",
+    "legendMean": "Mean",
+    "legendP90": "Performance (P90)",
+    "hoverMean": "mean",
+    "hoverP90": "P90"
+  },
+  "flyThreshold": {
+    "label": "Fly threshold",
+    "tooltip": "Speed above which the rider is considered foiling.",
+    "aria": "Fly threshold in knots"
+  },
+  "glossary": {
+    "title": "Glossary · Terms and abbreviations",
+    "subtitle": "Quick reference for the metrics and concepts used in Varea",
+    "closeAria": "Close glossary",
+    "sections": {
+      "wind": "Wind",
+      "movement": "Motion",
+      "pointsOfSail": "Points of sail & maneuvers",
+      "maneuverMetrics": "Maneuver metrics",
+      "foiling": "Foiling",
+      "data": "Data"
+    },
+    "terms": {
+      "twd": {
+        "name": "True Wind Direction",
+        "description": "Direction the true wind blows from, in degrees (0°=North, 90°=East, 180°=South, 270°=West). In Varea it can be estimated from GPS by analyzing course distribution, or taken from the Stormglass API when available."
+      },
+      "tws": {
+        "name": "True Wind Speed",
+        "description": "Strength of the true wind in knots (kts): how hard it is blowing. In Varea it comes from Stormglass when available, otherwise it is not computed."
+      },
+      "twa": {
+        "name": "True Wind Angle",
+        "description": "Angle between the boat's course (COG) and the wind direction (TWD). Range 0°-180°. It determines the point of sail: low TWA = upwind, medium TWA = beam reach, high TWA = run."
+      },
+      "sog": {
+        "name": "Speed Over Ground",
+        "description": "Boat speed relative to the ground, measured by GPS in knots. It is the \"true\" speed of the craft, independent of currents."
+      },
+      "cog": {
+        "name": "Course Over Ground",
+        "description": "Direction of the boat's motion relative to North, in degrees. On many Garmin GPS watches this value is missing or zero — in that case Varea reconstructs it from consecutive GPS points via spherical bearing calculation."
+      },
+      "vmg": {
+        "name": "Velocity Made Good",
+        "description": "Component of SOG along the wind direction. Formula: VMG = SOG × cos(TWA). It measures how effectively the rider progresses toward the windward mark (upwind) or away from it (downwind). Two riders with similar SOG can have very different VMG if they sail at different angles."
+      },
+      "bolina": {
+        "name": "Upwind",
+        "description": "Upwind point of sail, TWA typically 30°-60°. The boat climbs toward the wind. It is the most technical point of sail and where VMG matters most."
+      },
+      "traverso": {
+        "name": "Beam reach",
+        "description": "Wind on the beam, TWA 60°-120°. Usually the fastest point of sail overall."
+      },
+      "lasco": {
+        "name": "Broad reach",
+        "description": "Wind angled from astern, TWA 120°-150°."
+      },
+      "poppa": {
+        "name": "Run",
+        "description": "Wind dead astern, TWA 150°-180°."
+      },
+      "virata": {
+        "name": "Tack",
+        "description": "Upwind maneuver: the boat brings the bow through the wind, switching tack."
+      },
+      "strambata": {
+        "name": "Gybe",
+        "description": "Downwind maneuver: the boat brings the stern through the wind, switching tack."
+      },
+      "vIn": {
+        "name": "Entry speed",
+        "description": "SOG in the seconds before the maneuver. Shows how much speed the rider carries into the tack or gybe."
+      },
+      "vMin": {
+        "name": "Minimum speed",
+        "description": "Lowest SOG reached during the maneuver. Measures how much speed is \"lost\" in the transition."
+      },
+      "vOut": {
+        "name": "Exit speed",
+        "description": "SOG in the seconds after the maneuver, once stabilized."
+      },
+      "deltaV": {
+        "name": "Delta-V",
+        "description": "Difference between V.OUT and V.IN. Positive = the maneuver left the rider faster; negative = speed was lost. Key metric to assess maneuver quality."
+      },
+      "ttr": {
+        "name": "Time To Recovery 50%",
+        "description": "Seconds needed to recover 50% of the speed lost during the maneuver. Lower = more efficient maneuver."
+      },
+      "fly": {
+        "name": "FLY",
+        "description": "State in which the board is flying on the hydrofoil, with SOG above the configured threshold (default 12 kts). A \"fly\" maneuver is a tack or gybe executed while staying on the foil."
+      },
+      "touch": {
+        "name": "TOUCH",
+        "description": "State in which the board touches the water, with SOG below the foiling threshold. A \"touch\" maneuver means the rider lost flight during execution."
+      },
+      "soglia": {
+        "name": "Foiling threshold",
+        "description": "SOG (user-configurable) above which Varea considers the rider to be flying. Default: 12 kts. Editable in the Maneuvers and Lab views."
+      },
+      "foilingRatio": {
+        "name": "Foiling ratio",
+        "description": "Percentage of time SOG stayed above the foiling threshold. Shows how much of the session was actually on the foil."
+      },
+      "stormglass": {
+        "name": "Stormglass",
+        "description": "API service that provides historical wind data (TWD, TWS), currents, and waves for specific geographic coordinates and dates. When available, Varea uses it as the primary wind source. The green \"FROM STORMGLASS\" pill indicates that the data comes from the API."
+      },
+      "hz": {
+        "name": "1 Hz",
+        "description": "GPS data sampling frequency: one point per second. All data in Varea is resampled to 1 Hz after parsing the original FIT file."
+      },
+      "fit": {
+        "name": "FIT",
+        "description": "Garmin standard binary file format for recording sports activities. Contains GPS points, timestamps, and session metadata."
+      }
+    }
+  },
+  "pdf": {
+    "header": "TELEMETRY ANALYTICS  ·  SESSION REPORT",
+    "sessionOf": "Session of {{date}}",
+    "file": "File",
+    "periodSelected": "Period selected",
+    "avgCoordinates": "Avg coordinates",
+    "twdEstimated": "TWD estimated",
+    "windSource": "Wind source",
+    "foilingThreshold": "Foiling threshold",
+    "athlete": "Athlete",
+    "athleteUnspecified": "(not specified)",
+    "coverage": "Coverage",
+    "coverageFull": "full session",
+    "coverageFiltered": "filtered segment",
+    "windSourceGps": "GPS (estimated)",
+    "windSourceStormglass": "Stormglass (observed)",
+    "aggregateMetrics": "Aggregate metrics",
+    "aggregateDesc": "Average and peak speed, time spent foiling, VMG and breakdown of points of sail over the period.",
+    "metric": "Metric",
+    "value": "Value",
+    "unit": "Unit",
+    "avgSpeed": "Average speed",
+    "maxSpeed": "Peak speed",
+    "timeFoiling": "Time foiling",
+    "distanceCovered": "Distance covered",
+    "vmgUpwind": "VMG upwind",
+    "vmgBroad": "VMG broad/run",
+    "timeUpwind": "Time upwind",
+    "timeReach": "Time on beam reach",
+    "timeBroad": "Time broad/run",
+    "unclassified": "Unclassified point of sail",
+    "pctOfPeriod": "% of period",
+    "maneuverAnalysis": "Maneuver analysis",
+    "maneuverAnalysisDesc": "One row per maneuver in the period. Green = delta-v better than 75th percentile, red = worse than 25th.",
+    "noManeuversInPeriod": "No maneuvers detected in the selected period.",
+    "time": "Time",
+    "type": "Type",
+    "sogIn": "Entry SOG (kts)",
+    "sogMin": "Min SOG (kts)",
+    "deltaV": "Delta-v (kts)",
+    "durationSec": "Duration (s)",
+    "deltaSummary": "Delta-v summary: mean {{mean}} kts  ·  std dev {{std}} kts  ·  {{count}} maneuvers",
+    "gpsTrack": "GPS track",
+    "gpsTrackDesc": "Period path, coloured by point of sail. Green dot = start, red = end.",
+    "legendUpwind": "Upwind",
+    "legendReach": "Beam reach",
+    "legendBroad": "Broad/Run",
+    "trackUnavailable": "Track unavailable: insufficient position data.",
+    "coachNotes": "Coach notes",
+    "coachNotesDesc": "Time-stamped annotations on the key moments of the selected period.",
+    "noteIndex": "#",
+    "noteTime": "Time",
+    "noteText": "Annotation",
+    "startAnalysis": "Start analysis",
+    "startAnalysisDesc": "Athlete state at the gun and time needed to stabilize foiling.",
+    "sogAtStart": "SOG at start",
+    "timeToFirstFoiling": "Time to first foiling",
+    "thresholdNotReached": "threshold never reached in the period",
+    "notes": "Notes",
+    "notesContinued": "Notes (continued)",
+    "noNotes": "No notes entered.",
+    "manualAnnotationsLabel": "Space for handwritten annotations:",
+    "generatedAt": "Generated on {{date}}",
+    "pageOf": "Page {{current}} of {{total}}",
+    "fileNameAthleteDefault": "athlete"
+  },
+  "errors": {
+    "unknown": "Unknown error",
+    "uploadFailed": "HTTP {{status}}",
+    "pdfGenerationFailed": "PDF generation failed. Check the console for details."
+  },
+  "windRose": {
+    "n": "N",
+    "e": "E",
+    "s": "S",
+    "w": "W",
+    "aria": "Wind direction {{deg}}°",
+    "sparklineAria": "Hourly wind direction trend"
+  },
+  "map": {
+    "noGpsData": "No GPS data to display",
+    "hoverTime": "TIME",
+    "hoverSpeed": "Speed",
+    "hoverSail": "Sail",
+    "startMarker": "START",
+    "endMarker": "END",
+    "startHover": "Track start",
+    "endHover": "Track end",
+    "noteHover": "Coach note #{{number}}",
+    "colorbarSog": "SOG (kts)"
   }
 }

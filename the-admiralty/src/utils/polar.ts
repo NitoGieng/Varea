@@ -31,8 +31,12 @@ export interface PolarOptimum {
   sogKnots: number;
 }
 
+export type PolarZoneId = 'bolinaStretta' | 'bolina' | 'traverso' | 'lasco' | 'poppa';
+
 export interface PolarZoneStats {
-  label: string;
+  // ID stabile della zona: i consumer lo usano come chiave i18n
+  // (polar.zoneBolinaStretta ecc.). Disaccoppia logica da etichette UI.
+  zoneId: PolarZoneId;
   rangeDeg: [number, number];
   sogMax: number;
   sogP90: number | null;
@@ -165,25 +169,25 @@ export function findDownwindOptimum(
   return best;
 }
 
-const ZONES: { label: string; range: [number, number] }[] = [
-  { label: 'Bolina stretta', range: [0, 45] },
-  { label: 'Bolina', range: [45, 80] },
-  { label: 'Traverso', range: [80, 100] },
-  { label: 'Lasco', range: [100, 150] },
+const ZONES: { zoneId: PolarZoneId; range: [number, number] }[] = [
+  { zoneId: 'bolinaStretta', range: [0, 45] },
+  { zoneId: 'bolina', range: [45, 80] },
+  { zoneId: 'traverso', range: [80, 100] },
+  { zoneId: 'lasco', range: [100, 150] },
   // Estremo destro 180.001 cosi' twa=180 esatto (poppa pura) cade nella
   // zona Poppa invece di essere scartato dal half-open intervallo.
-  { label: 'Poppa', range: [150, 180.001] },
+  { zoneId: 'poppa', range: [150, 180.001] },
 ];
 
 export function buildZoneStats(points: PolarValidPoint[]): PolarZoneStats[] {
   const total = points.length;
-  return ZONES.map(({ label, range }) => {
+  return ZONES.map(({ zoneId, range }) => {
     const sogs: number[] = [];
     for (const p of points) {
       if (p.twa >= range[0] && p.twa < range[1]) sogs.push(p.sog);
     }
     return {
-      label,
+      zoneId,
       rangeDeg: [range[0], Math.min(range[1], 180)],
       sogMax: sogs.length === 0 ? 0 : Math.max(...sogs),
       sogP90: sogs.length >= POLAR_MIN_BUCKET_COUNT ? percentile(sogs, 0.9) : null,

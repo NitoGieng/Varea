@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import ReactPlot from 'react-plotly.js';
+import { useTranslation } from 'react-i18next';
 import type {
   PolarBucket,
   PolarValidPoint,
@@ -32,7 +33,7 @@ const GOLD = 'rgb(212,175,110)';
 // Layer 1 — scatter dei punti grezzi. Per la simmetria (stesso punto a
 // sinistra e destra del verticale) duplichiamo ogni campione su theta e
 // 360-theta. Plotly Scatterpolar accetta entrambi senza ulteriore logica.
-function buildScatterTrace(points: PolarValidPoint[], andatura: string, color: string) {
+function buildScatterTrace(points: PolarValidPoint[], displayName: string, color: string, fallbackName: string) {
   const r: number[] = [];
   const theta: number[] = [];
   for (const p of points) {
@@ -44,7 +45,7 @@ function buildScatterTrace(points: PolarValidPoint[], andatura: string, color: s
   return {
     type: 'scatterpolar',
     mode: 'markers',
-    name: andatura || 'Dati sessione',
+    name: displayName || fallbackName,
     r,
     theta,
     // hovertemplate al posto di hoverinfo:'text': cosi' la formattazione
@@ -59,7 +60,7 @@ function buildScatterTrace(points: PolarValidPoint[], andatura: string, color: s
       opacity: 0.25,
       line: { width: 0 },
     },
-    showlegend: !!andatura,
+    showlegend: !!displayName,
     legendgroup: 'raw',
   };
 }
@@ -136,7 +137,18 @@ function buildCurveTrace(
   return trace;
 }
 
+// Mapping fra il valore raw `andatura` del backend (sempre italiano) e
+// la chiave i18n usata per la legenda. La lookup colori resta basata sul
+// raw value perche' il backend non manda mai stringhe tradotte.
+const ANDATURA_LABEL_KEY: Record<string, string> = {
+  Bolina: 'polarChart.groupBolina',
+  Traverso: 'polarChart.groupTraverso',
+  'Lasco/Poppa': 'polarChart.groupLascoPoppa',
+};
+const ANDATURA_OTHER_KEY = 'polarChart.groupOther';
+
 export default function PolarChart({ rawPoints, buckets, smoothedP90, maxSog }: Props) {
+  const { t } = useTranslation();
   const data = useMemo(() => {
     // Raggruppo lo scatter per andatura cosi' la legenda e' utile (un
     // entry per categoria invece di un blob unico). Le andature non
@@ -149,19 +161,22 @@ export default function PolarChart({ rawPoints, buckets, smoothedP90, maxSog }: 
     }
 
     const traces: unknown[] = [];
+    const scatterFallback = t('polarChart.scatterName');
     // Ordine di disegno: scatter sotto, media in mezzo, P90 sopra (priorita'
     // visiva). La legenda di Plotly riflette l'ordine di insert.
     for (const key of Object.keys(groups)) {
       const color = ANDATURA_COLOR[key] ?? FALLBACK_COLOR;
-      traces.push(buildScatterTrace(groups[key], key, color));
+      const labelKey = ANDATURA_LABEL_KEY[key] ?? ANDATURA_OTHER_KEY;
+      const displayName = t(labelKey);
+      traces.push(buildScatterTrace(groups[key], displayName, color, scatterFallback));
     }
 
     const avgValues = buckets.map(b => b.sogAvg);
-    traces.push(buildCurveTrace(buckets, avgValues, INK_3, 1, 'Media', 'media'));
-    traces.push(buildCurveTrace(buckets, smoothedP90, GOLD, 2.5, 'Performance (P90)', 'P90', true));
+    traces.push(buildCurveTrace(buckets, avgValues, INK_3, 1, t('polarChart.legendMean'), t('polarChart.hoverMean')));
+    traces.push(buildCurveTrace(buckets, smoothedP90, GOLD, 2.5, t('polarChart.legendP90'), t('polarChart.hoverP90'), true));
 
     return traces;
-  }, [rawPoints, buckets, smoothedP90]);
+  }, [rawPoints, buckets, smoothedP90, t]);
 
   const layout = useMemo(() => ({
     polar: {

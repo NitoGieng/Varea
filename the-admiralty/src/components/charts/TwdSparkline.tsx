@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { TwdTimelinePoint } from '../../types/telemetry';
 
 interface Props {
@@ -33,6 +34,7 @@ export default function TwdSparkline({
   width = 200,
   height = 56,
 }: Props) {
+  const { t } = useTranslation();
   const data = useMemo(() => {
     if (!timeline || timeline.length < 2) return null;
 
@@ -115,7 +117,7 @@ export default function TwdSparkline({
       height={height}
       viewBox={`0 0 ${width} ${height}`}
       role="img"
-      aria-label="Andamento orario direzione vento"
+      aria-label={t('windRose.sparklineAria')}
       className="overflow-visible"
     >
       {highlightX1 != null && highlightX2 != null && (

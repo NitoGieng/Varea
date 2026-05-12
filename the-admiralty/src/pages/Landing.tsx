@@ -1,4 +1,5 @@
 import { motion } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
 import { BackgroundPaths } from '../components/BackgroundPaths';
 
 interface Props {
@@ -13,6 +14,7 @@ interface Props {
 // l'analisi nel Dashboard (vedi App.tsx + Dashboard.initialFiles), cosi' c'e'
 // un solo click fra "voglio iniziare" e l'analisi reale.
 export default function Landing({ onEnter }: Props) {
+  const { t } = useTranslation();
   const title = 'Varea';
 
   return (
@@ -44,7 +46,7 @@ export default function Landing({ onEnter }: Props) {
             transition={{ duration: 0.8, delay: 0.2 }}
             className="text-eyebrow uppercase tracking-eyebrow text-[#c9a169] mb-6"
           >
-            Telemetry analytics
+            {t('landing.telemetryAnalytics')}
           </motion.p>
 
           <h1 className="font-serif italic text-5xl sm:text-7xl md:text-8xl text-[#f5f1e6] leading-none mb-6 tracking-tighter">
@@ -81,8 +83,7 @@ export default function Landing({ onEnter }: Props) {
             transition={{ duration: 0.8, delay: 1.05 }}
             className="text-base sm:text-lg text-[#f5f1e6]/70 max-w-xl mx-auto mb-12 font-sans leading-relaxed"
           >
-            Analisi avanzata di sessioni di vela e windsurf da telemetria GPS.
-            Vento reale, andature, manovre, VMG.
+            {t('landing.description')}
           </motion.p>
 
           <motion.div
@@ -93,7 +94,7 @@ export default function Landing({ onEnter }: Props) {
             <label
               className="group inline-flex items-center gap-3 px-8 py-4 bg-[#c9a169] hover:bg-[#e8cea0] text-[#0a1428] text-eyebrow uppercase tracking-eyebrow rounded-md transition-all duration-220 ease-varea hover:-translate-y-0.5 shadow-card-md cursor-pointer"
             >
-              <span>Inizia l'analisi</span>
+              <span>{t('landing.startAnalysis')}</span>
               <span className="transition-transform duration-220 ease-varea group-hover:translate-x-1">
                 →
               </span>

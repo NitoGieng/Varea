@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import ManeuverFootprint from '../components/charts/ManeuverFootprint';
 import type { LabSession } from '../components/charts/ManeuverFootprint';
 
@@ -16,6 +17,7 @@ interface LabProps {
 // dalla finestra temporale globale; il selettore atleta vive dentro
 // ManeuverFootprint perche' lavora sulla logica del catalogo di manovre.
 export default function Lab({ sessions, flyThreshold, onFlyThresholdChange, isWindEstimated }: LabProps) {
+  const { t } = useTranslation();
   return (
     <div className="px-6 lg:px-12 py-8 max-w-[1500px] mx-auto w-full">
       <header className="pb-5">
@@ -32,14 +34,13 @@ export default function Lab({ sessions, flyThreshold, onFlyThresholdChange, isWi
               color: 'rgb(var(--ink-3))',
             }}
           >
-            Laboratorio
+            {t('lab.title')}
           </span>
           <div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
         </div>
-        <h1 className="font-serif italic text-h2 text-ink leading-none">Traiettorie</h1>
+        <h1 className="font-serif italic text-h2 text-ink leading-none">{t('lab.trajectories')}</h1>
         <p className="text-caption text-ink-muted mt-3 max-w-2xl">
-          Seleziona una manovra dal catalogo per analizzare la radiografia XY
-          della curva e la velocità istante-per-istante.
+          {t('lab.hint')}
         </p>
       </header>
 

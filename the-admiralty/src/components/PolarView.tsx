@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import PolarChart from './charts/PolarChart';
 import PolarStatsPanel from './PolarStatsPanel';
 import type { HighResPoint } from '../types/telemetry';
@@ -36,6 +37,7 @@ export default function PolarView({
   isWindEstimated,
   minIntervalSec = 300,
 }: Props) {
+  const { t } = useTranslation();
   const polarData = useMemo(() => {
     const valid = extractValidPolarPoints(highResTrack);
     const buckets = buildBuckets(valid);
@@ -67,8 +69,8 @@ export default function PolarView({
   const [helpOpen, setHelpOpen] = useState(false);
 
   const windSourceLabel = isWindEstimated
-    ? 'Calcolata su vento stimato da GPS'
-    : 'Calcolata su vento Stormglass';
+    ? t('polarView.windEstimated')
+    : t('polarView.windObserved');
 
   return (
     <div className="flex-1 flex flex-col bg-surface-1 overflow-hidden">
@@ -78,10 +80,10 @@ export default function PolarView({
           a prescindere dalla presenza di athleteLabel. */}
       <div className="px-6 py-3 border-b border-border bg-surface-1 shrink-0 flex items-baseline gap-3 flex-wrap">
         <span className="text-eyebrow uppercase tracking-eyebrow text-ink-muted">
-          Diagramma polare
+          {t('polarView.polarChart')}
         </span>
         <span className="font-serif italic text-base text-ink leading-none">
-          Performance
+          {t('polarView.performance')}
         </span>
         <span
           className="text-eyebrow uppercase tracking-eyebrow"
@@ -106,7 +108,7 @@ export default function PolarView({
           >
             <button
               type="button"
-              aria-label="Come leggere la polar chart"
+              aria-label={t('polarView.helpAria')}
               style={{
                 width: 18,
                 height: 18,
@@ -168,37 +170,14 @@ export default function PolarView({
                   lineHeight: 1.2,
                 }}
               >
-                Come leggere la polar chart
+                {t('polarView.helpTitle')}
               </div>
-              <p style={{ margin: 0 }}>
-                La polar chart mostra la performance dell&apos;atleta a tutti
-                gli angoli rispetto al vento. Il vento soffia dall&apos;alto
-                verso il basso del grafico (0° = controvento puro,
-                180° = poppa).
-              </p>
-              <p style={{ margin: '10px 0 0 0' }}>
-                L&apos;asse radiale rappresenta la velocità: più un punto è
-                lontano dal centro, più la barca era veloce a quell&apos;angolo.
-              </p>
-              <p style={{ margin: '10px 0 0 0' }}>
-                La curva dorata (P90) indica la performance massima
-                sostenibile: per ogni angolo, la velocità raggiunta nel
-                90% dei casi. È la curva di riferimento per valutare il
-                potenziale dell&apos;atleta.
-              </p>
-              <p style={{ margin: '10px 0 0 0' }}>
-                La linea grigia indica la media: la velocità tipica a
-                quell&apos;angolo, utile per capire la consistenza.
-              </p>
-              <p style={{ margin: '10px 0 0 0' }}>
-                I punti grigi in trasparenza sono tutti i campioni reali
-                della sessione — danno un&apos;idea della dispersione.
-              </p>
-              <p style={{ margin: '10px 0 0 0' }}>
-                Per ottimizzare le performance: angolo di bolina dove la
-                VMG è massima (tipicamente 40°-50°) e angolo di poppa
-                dove la VMG in poppa è massima (tipicamente 140°-150°).
-              </p>
+              <p style={{ margin: 0 }}>{t('polarView.helpP1')}</p>
+              <p style={{ margin: '10px 0 0 0' }}>{t('polarView.helpP2')}</p>
+              <p style={{ margin: '10px 0 0 0' }}>{t('polarView.helpP3')}</p>
+              <p style={{ margin: '10px 0 0 0' }}>{t('polarView.helpP4')}</p>
+              <p style={{ margin: '10px 0 0 0' }}>{t('polarView.helpP5')}</p>
+              <p style={{ margin: '10px 0 0 0' }}>{t('polarView.helpP6')}</p>
             </div>
           </div>
         </div>
@@ -207,8 +186,7 @@ export default function PolarView({
       {/* Sotto-header con la nota di interpretazione: stessa riga del
           tono "disclaimer" della Panoramica, in caption + ink-muted. */}
       <div className="px-6 py-2 border-b border-border bg-bg/40 shrink-0 text-caption text-ink-muted">
-        La qualità della polar dipende dalla precisione della stima TWD.
-        Con vento variabile interpretare con cautela.
+        {t('polarView.interpretationNote')}
       </div>
 
       {/* Warning intervallo breve (non bloccante: la polar viene comunque
@@ -220,7 +198,7 @@ export default function PolarView({
           style={{ background: 'rgba(212,162,76,0.06)', color: 'rgb(var(--amber))' }}
         >
           <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber" />
-          Intervallo selezionato breve ({Math.round(intervalSec / 60)} min): la polar potrebbe non essere rappresentativa.
+          {t('polarView.intervalTooShort', { minutes: Math.round(intervalSec / 60) })}
         </div>
       )}
 
@@ -237,11 +215,10 @@ export default function PolarView({
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="bg-[#040d1a]/85 backdrop-blur border border-white/10 px-6 py-4 rounded-md text-center max-w-md">
                 <div className="text-eyebrow uppercase tracking-eyebrow text-amber mb-2">
-                  Dati insufficienti
+                  {t('polarView.insufficientDataTitle')}
                 </div>
                 <div className="text-caption text-white/70">
-                  {polarData.valid.length} punti validi nel periodo selezionato (richiesti almeno {POLAR_MIN_VALID_POINTS}).
-                  Seleziona un intervallo più ampio.
+                  {t('polarView.insufficientDataBody', { count: polarData.valid.length, min: POLAR_MIN_VALID_POINTS })}
                 </div>
               </div>
             </div>

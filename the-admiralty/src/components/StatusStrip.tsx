@@ -3,6 +3,7 @@
 // — durata, distanza, vento, fonte vento, coordinate. Il contenuto e'
 // puramente visivo: tutti i numeri arrivano dallo stato sessione gestito
 // dal Dashboard, qui non vengono ne' calcolati ne' filtrati.
+import { useTranslation } from 'react-i18next';
 
 interface Props {
   hasSession: boolean;
@@ -36,6 +37,7 @@ export default function StatusStrip({
   lat,
   lon,
 }: Props) {
+  const { t } = useTranslation();
   const baseStyle: React.CSSProperties = {
     height: 30,
     borderTop: '1px solid var(--line)',
@@ -57,7 +59,7 @@ export default function StatusStrip({
         style={baseStyle}
       >
         <span style={{ color: 'rgb(var(--ink-4))' }}>
-          — nessuna sessione caricata —
+          {t('statusStrip.noSession')}
         </span>
       </div>
     );
@@ -71,29 +73,29 @@ export default function StatusStrip({
       <div className="flex items-center gap-0 flex-wrap min-w-0 flex-1">
         <Cell first>
           <span className="cockpit-led" aria-hidden style={{ marginRight: 8 }} />
-          Sessione live
+          {t('statusStrip.live')}
         </Cell>
         {durationSeconds != null && (
           <Cell>
-            <Label>Durata</Label>
+            <Label>{t('statusStrip.duration')}</Label>
             <Mono>{fmtDuration(durationSeconds)}</Mono>
           </Cell>
         )}
         {distanceNm != null && (
           <Cell>
-            <Label>Dist</Label>
+            <Label>{t('statusStrip.distance')}</Label>
             <Mono>{distanceNm.toFixed(1)} NM</Mono>
           </Cell>
         )}
         <Cell>
-          <Label>TWS</Label>
+          <Label>{t('statusStrip.tws')}</Label>
           {/* TWS non esposto dal backend (vedi src/environment): placeholder
               "--" honest invece di fake. */}
           <Mono dim>-- kts</Mono>
         </Cell>
         {twdDeg != null && (
           <Cell>
-            <Label>TWD</Label>
+            <Label>{t('statusStrip.twd')}</Label>
             <Mono>{Math.round(twdDeg).toString().padStart(3, '0')}°</Mono>
           </Cell>
         )}
@@ -110,8 +112,8 @@ export default function StatusStrip({
                   : 'rgb(var(--green))',
               }}
             />
-            <Label>Stormglass</Label>
-            <Mono>{isEstimated ? 'GPS fallback' : 'Sync'}</Mono>
+            <Label>{t('statusStrip.stormglass')}</Label>
+            <Mono>{isEstimated ? t('statusStrip.gpsFallback') : t('statusStrip.sync')}</Mono>
           </Cell>
         )}
       </div>

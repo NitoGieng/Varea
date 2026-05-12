@@ -191,7 +191,7 @@ export default function Sidebar({ currentView, onNavigate }: Props) {
                 color: 'rgb(var(--ink-3))',
               }}
             >
-              Online
+              {t('common.online')}
             </motion.span>
           )}
         </AnimatePresence>
@@ -209,8 +209,8 @@ export default function Sidebar({ currentView, onNavigate }: Props) {
           }}
           onMouseEnter={(e) => (e.currentTarget.style.color = 'rgb(var(--gold))')}
           onMouseLeave={(e) => (e.currentTarget.style.color = 'rgb(var(--ink-3))')}
-          title="Inverti tema"
-          aria-label="Toggle tema"
+          title={t('topbar.themeToggle')}
+          aria-label={t('topbar.themeAria')}
         >
           <ThemeIcon />
         </motion.button>

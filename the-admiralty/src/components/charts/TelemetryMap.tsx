@@ -1,4 +1,5 @@
 import ReactPlot from 'react-plotly.js';
+import { useTranslation } from 'react-i18next';
 import { parseBackendTimestamp } from '../../utils/time';
 
 // react-plotly.js non fornisce tipi ufficiali stabili: il cast a any permette
@@ -108,12 +109,13 @@ export default function TelemetryMap({
   onTrackClick,
   onNoteMarkerClick,
 }: Props) {
+  const { t } = useTranslation();
   const visibleLayers = layers.filter(l => l.points.length > 0);
 
   if (visibleLayers.length === 0) {
     return (
       <div className="absolute inset-0 flex items-center justify-center text-ink-muted text-caption italic">
-        Nessun dato GPS da mostrare
+        {t('map.noGpsData')}
       </div>
     );
   }
@@ -139,10 +141,14 @@ export default function TelemetryMap({
     // immediato (l'allenatore correla con la timeline mentale della regata),
     // seguito da SOG/TWA/andatura. Se il punto manca di timestamp, l'orario
     // viene omesso invece di mostrare "—" che sarebbe confondente.
+    const hoverTime = t('map.hoverTime');
+    const hoverSpeed = t('map.hoverSpeed');
+    const hoverSail = t('map.hoverSail');
+    const naDash = t('common.na');
     const hoverTexts = pts.map(p => {
       const clock = formatLocalClock(p.timestamp);
-      const head = clock ? `ORARIO: ${clock}<br>` : '';
-      return `${head}Speed: ${p.sog_knots.toFixed(1)} kts<br>TWA: ${(p.twa ?? 0).toFixed(0)}°<br>Sail: ${p.andatura ?? '—'}`;
+      const head = clock ? `${hoverTime}: ${clock}<br>` : '';
+      return `${head}${hoverSpeed}: ${p.sog_knots.toFixed(1)} kts<br>TWA: ${(p.twa ?? 0).toFixed(0)}°<br>${hoverSail}: ${p.andatura ?? naDash}`;
     });
 
     // Trace base (line + markers heatmap + START + FINE). Indici fissi
@@ -168,7 +174,7 @@ export default function TelemetryMap({
             [1, '#f5f1e6'],
           ],
           colorbar: {
-            title: { text: 'SOG (kts)', font: { family: 'Inter, sans-serif', size: 10, color: '#a8b3c4' } },
+            title: { text: t('map.colorbarSog'), font: { family: 'Inter, sans-serif', size: 10, color: '#a8b3c4' } },
             thickness: 12, len: 0.7, outlinewidth: 0,
             tickfont: { family: 'JetBrains Mono, ui-monospace, monospace', size: 10, color: '#a8b3c4' },
           },
@@ -178,16 +184,16 @@ export default function TelemetryMap({
       {
         type: 'scattermap', lat: [lats[0]], lon: [lons[0]], mode: 'markers+text',
         marker: { size: 12, color: '#7fa885' },
-        text: ['START'], textposition: 'top right',
+        text: [t('map.startMarker')], textposition: 'top right',
         textfont: { family: 'JetBrains Mono, monospace', size: 11, color: '#7fa885' },
-        hovertext: ['Inizio tracciato'], hoverinfo: 'text', showlegend: false,
+        hovertext: [t('map.startHover')], hoverinfo: 'text', showlegend: false,
       },
       {
         type: 'scattermap', lat: [lats[lats.length - 1]], lon: [lons[lons.length - 1]], mode: 'markers+text',
         marker: { size: 12, color: '#c97462' },
-        text: ['FINE'], textposition: 'top right',
+        text: [t('map.endMarker')], textposition: 'top right',
         textfont: { family: 'JetBrains Mono, monospace', size: 11, color: '#c97462' },
-        hovertext: ['Fine tracciato'], hoverinfo: 'text', showlegend: false,
+        hovertext: [t('map.endHover')], hoverinfo: 'text', showlegend: false,
       },
     ];
 
@@ -200,7 +206,7 @@ export default function TelemetryMap({
       const nLats = noteMarkers.map(n => n.lat);
       const nLons = noteMarkers.map(n => n.lon);
       const nLabels = noteMarkers.map(n => String(n.number));
-      const nHover = noteMarkers.map(n => `Nota allenatore #${n.number}`);
+      const nHover = noteMarkers.map(n => t('map.noteHover', { number: n.number }));
       const nColors = noteMarkers.map(n => n.color || NOTE_MARKER_COLOR);
       const nSizes = noteMarkers.map(n => n.id === highlightedNoteId ? 22 : 18);
       traces.push({
@@ -275,12 +281,14 @@ export default function TelemetryMap({
   for (const l of decimated) {
     const lats = l.points.map(p => p.lat);
     const lons = l.points.map(p => p.lon);
+    const hoverTime = t('map.hoverTime');
+    const hoverSail = t('map.hoverSail');
     const hoverTexts = l.points.map(p => {
       const clock = formatLocalClock(p.timestamp);
-      const head = clock ? `ORARIO: ${clock}<br>` : '';
+      const head = clock ? `${hoverTime}: ${clock}<br>` : '';
       return `${head}${l.label}<br>SOG: ${p.sog_knots.toFixed(1)} kts`
         + (p.twa != null ? `<br>TWA: ${p.twa.toFixed(0)}°` : '')
-        + (p.andatura ? `<br>Sail: ${p.andatura}` : '');
+        + (p.andatura ? `<br>${hoverSail}: ${p.andatura}` : '');
     });
     traces.push({
       type: 'scattermap', lat: lats, lon: lons, mode: 'lines',

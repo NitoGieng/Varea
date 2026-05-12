@@ -1,8 +1,10 @@
 import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine, ReferenceDot
 } from 'recharts';
+import type { TFunction } from 'i18next';
 import type { Maneuver, HighResPoint } from '../../types/telemetry';
 import { parseBackendTimestamp } from '../../utils/time';
 import type { CoachNote } from '../../utils/notes';
@@ -58,8 +60,8 @@ const COLOR_VOUT = '#e8cea0';   // brass
 const COLOR_TOOLTIP_BG = '#0a1628'; // surface-1 dark
 const COLOR_TOOLTIP_BORDER = 'rgba(201, 161, 105, 0.3)';
 
-const formatXAxis = (v: number) => {
-  if (v === 0) return 'MANOVRA';
+const makeFormatXAxis = (t: TFunction) => (v: number) => {
+  if (v === 0) return t('speedChart.maneuverTick');
   return v > 0 ? `+${v}s` : `${v}s`;
 };
 
@@ -71,11 +73,12 @@ type AnyProps = any;
 // ridichiararlo a ogni render azzererebbe lo stato interno (regola
 // react-hooks/static-components).
 function CustomTooltip({ active, payload }: AnyProps) {
+  const { t } = useTranslation();
   if (!active || !payload || !payload.length) return null;
   const d = payload[0].payload;
   const label = d.relativeTime === 0
-    ? 'CAMBIO MURA'
-    : d.relativeTime < 0 ? `${Math.abs(d.relativeTime)}s prima` : `+${d.relativeTime}s`;
+    ? t('speedChart.tackChange')
+    : d.relativeTime < 0 ? t('speedChart.beforeSec', { value: Math.abs(d.relativeTime) }) : `+${d.relativeTime}s`;
   const vmgValid = typeof d.vmg === 'number' && Number.isFinite(d.vmg);
   return (
     <div
@@ -93,7 +96,7 @@ function CustomTooltip({ active, payload }: AnyProps) {
         <span className="font-bold">{d.sog.toFixed(1)}</span> kts
       </p>
       <p className="text-body leading-tight" style={{ color: COLOR_VMG }}>
-        VMG <span className="font-bold">{vmgValid ? d.vmg.toFixed(1) : 'n/d'}</span>
+        VMG <span className="font-bold">{vmgValid ? d.vmg.toFixed(1) : t('common.na')}</span>
         {vmgValid ? ' kts' : ''}
       </p>
       <p className="text-caption" style={{ color: COLOR_AXIS_DIM }}>COG {d.cog.toFixed(0)}°</p>
@@ -118,6 +121,8 @@ export default function ManeuverSpeedChart({
   onNoteClick,
   isWindEstimated,
 }: Props) {
+  const { t } = useTranslation();
+  const formatXAxis = useMemo(() => makeFormatXAxis(t), [t]);
   const { chartData, vMinTime, vInValue, vMinValue, vOutValue, ttrTarget } = useMemo(() => {
     const empty = {
       chartData: [] as Array<{ relativeTime: number; sog: number; cog: number; epoch: number; vmg: number | null }>,
@@ -203,7 +208,7 @@ export default function ManeuverSpeedChart({
   if (!chartData.length) {
     return (
       <div className="w-full flex items-center justify-center text-ink-muted text-caption italic" style={{ height }}>
-        Nessun dato ad alta risoluzione in questa finestra.
+        {t('speedChart.noHighResData')}
       </div>
     );
   }
@@ -245,12 +250,12 @@ export default function ManeuverSpeedChart({
           <span
             className="flex items-center gap-1"
             title={isWindEstimated
-              ? 'VMG calcolata su vento stimato dal GPS (Stormglass non disponibile)'
-              : 'VMG calcolata su vento osservato da Stormglass'}
+              ? t('speedChart.vmgEstimatedTitle')
+              : t('speedChart.vmgObservedTitle')}
             style={{ color: isWindEstimated ? '#d4a345' : '#8a9a5b' }}
           >
             <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ backgroundColor: isWindEstimated ? '#d4a345' : '#8a9a5b' }} />
-            <span>{isWindEstimated ? 'Stimato GPS' : 'Stormglass'}</span>
+            <span>{isWindEstimated ? t('speedChart.vmgEstimatedPill') : t('speedChart.vmgObservedPill')}</span>
           </span>
         )}
       </div>
@@ -301,7 +306,7 @@ export default function ManeuverSpeedChart({
             strokeDasharray="3 4"
             label={{
               position: 'top',
-              value: 'MANOVRA',
+              value: t('speedChart.maneuverTick'),
               fill: COLOR_LINE,
               fontSize: 10,
               fontFamily: 'JetBrains Mono, monospace',
@@ -317,7 +322,7 @@ export default function ManeuverSpeedChart({
               strokeDasharray="2 4"
               label={{
                 position: 'right',
-                value: `Target ${ttrTarget.toFixed(1)}`,
+                value: t('maneuvers.target', { value: ttrTarget.toFixed(1) }),
                 fill: COLOR_AXIS_DIM,
                 fontSize: 9,
                 fontFamily: 'JetBrains Mono, monospace',

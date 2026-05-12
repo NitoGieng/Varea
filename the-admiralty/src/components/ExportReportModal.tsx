@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 // Modale di pre-export: raccoglie i parametri editabili (atleta, soglia
 // foiling, note allenatore) prima di generare il PDF. Mostra un avviso
@@ -35,6 +36,7 @@ export default function ExportReportModal({
   initialCoachNotes = '',
   periodSeconds,
 }: Props) {
+  const { t } = useTranslation();
   const [athleteName, setAthleteName] = useState(initialAthleteName);
   const [flyThreshold, setFlyThreshold] = useState<string>(initialFlyThreshold.toFixed(1));
   const [coachNotes, setCoachNotes] = useState(initialCoachNotes);
@@ -68,11 +70,10 @@ export default function ExportReportModal({
         onClick={(e) => e.stopPropagation()}
       >
         <header className="mb-5">
-          <p className="eyebrow text-gold mb-2">Export</p>
-          <h2 className="font-serif italic text-2xl text-ink leading-none">Esporta Report PDF</h2>
+          <p className="eyebrow text-gold mb-2">{t('exportModal.eyebrow')}</p>
+          <h2 className="font-serif italic text-2xl text-ink leading-none">{t('exportModal.title')}</h2>
           <p className="text-caption text-ink-muted mt-2">
-            Configura i parametri prima di generare il documento. I dati saranno
-            filtrati sulla finestra temporale attualmente selezionata.
+            {t('exportModal.subtitle')}
           </p>
         </header>
 
@@ -81,7 +82,7 @@ export default function ExportReportModal({
         <div className="space-y-4">
           <div>
             <label className="block eyebrow mb-1.5" htmlFor="athleteName">
-              Nome atleta
+              {t('exportModal.athleteLabel')}
             </label>
             <input
               id="athleteName"
@@ -89,14 +90,14 @@ export default function ExportReportModal({
               type="text"
               value={athleteName}
               onChange={(e) => setAthleteName(e.target.value)}
-              placeholder="Es. Marco Rossi"
+              placeholder={t('exportModal.athletePlaceholder')}
               className="w-full bg-bg border border-border rounded-md px-3 py-2 text-body text-ink placeholder-ink-muted focus:outline-none focus:border-gold transition-colors duration-220"
             />
           </div>
 
           <div>
             <label className="block eyebrow mb-1.5" htmlFor="flyThreshold">
-              Soglia foiling (kts)
+              {t('exportModal.flyThresholdLabel')}
             </label>
             <input
               id="flyThreshold"
@@ -111,29 +112,28 @@ export default function ExportReportModal({
               }`}
             />
             <p className="text-caption text-ink-muted mt-1">
-              SOG sopra la quale l'atleta e' considerato in foiling. Default {initialFlyThreshold.toFixed(1)} kts.
+              {t('exportModal.flyThresholdHelp', { value: initialFlyThreshold.toFixed(1) })}
             </p>
           </div>
 
           <div>
             <label className="block eyebrow mb-1.5" htmlFor="coachNotes">
-              Note allenatore
+              {t('exportModal.coachNotesLabel')}
             </label>
             <textarea
               id="coachNotes"
               value={coachNotes}
               onChange={(e) => setCoachNotes(e.target.value)}
               rows={4}
-              placeholder="Osservazioni, obiettivi, punti di lavoro per la prossima sessione..."
+              placeholder={t('exportModal.coachNotesPlaceholder')}
               className="w-full bg-bg border border-border rounded-md px-3 py-2 text-body text-ink placeholder-ink-muted focus:outline-none focus:border-gold transition-colors duration-220 resize-y"
             />
           </div>
 
           {isShortPeriod && (
             <div className="border border-amber/40 bg-amber/10 rounded-md px-3 py-2 text-caption text-ink">
-              <strong className="text-amber">Periodo molto breve:</strong>{' '}
-              hai selezionato meno di {SHORT_PERIOD_THRESHOLD} secondi. Le metriche
-              aggregate (VMG, % foiling, percentili manovre) saranno poco significative.
+              <strong className="text-amber">{t('exportModal.shortPeriodWarningTitle')}</strong>{' '}
+              {t('exportModal.shortPeriodWarningBody', { seconds: SHORT_PERIOD_THRESHOLD })}
             </div>
           )}
         </div>
@@ -143,14 +143,14 @@ export default function ExportReportModal({
             onClick={onClose}
             className="px-4 py-2 text-eyebrow uppercase tracking-eyebrow text-ink-muted hover:text-ink transition-colors duration-220"
           >
-            Annulla
+            {t('exportModal.cancel')}
           </button>
           <button
             onClick={handleConfirm}
             disabled={!thresholdValid}
             className="px-5 py-2 bg-gold hover:bg-[#e8cea0] text-[#0a1428] text-eyebrow uppercase tracking-eyebrow rounded-md transition-all duration-220 ease-varea hover:-translate-y-0.5 shadow-card disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0"
           >
-            Genera PDF
+            {t('exportModal.confirm')}
           </button>
         </footer>
       </div>

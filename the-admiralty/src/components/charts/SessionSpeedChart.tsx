@@ -3,6 +3,8 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine, ReferenceDot,
 } from 'recharts';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import type { TrackPoint, HighResPoint } from '../../types/telemetry';
 import { parseBackendTimestamp } from '../../utils/time';
 import type { CoachNote } from '../../utils/notes';
@@ -87,7 +89,7 @@ function formatAbsoluteTickFactory(sessionStartMs: number) {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyProps = any;
 
-function CustomTooltip({ active, payload, formatTick }: AnyProps) {
+function CustomTooltip({ active, payload, formatTick, t }: AnyProps & { t: TFunction }) {
   if (!active || !payload || !payload.length) return null;
   const d = payload[0].payload;
   const vmgValid = typeof d.vmg === 'number' && Number.isFinite(d.vmg);
@@ -110,7 +112,7 @@ function CustomTooltip({ active, payload, formatTick }: AnyProps) {
       </p>
       <p className="text-body leading-tight" style={{ color: COLOR_VMG }}>
         VMG{' '}
-        <span className="font-bold">{vmgValid ? d.vmg.toFixed(1) : 'n/d'}</span>
+        <span className="font-bold">{vmgValid ? d.vmg.toFixed(1) : t('common.na')}</span>
         {vmgValid ? ' kts' : ''}
       </p>
     </div>
@@ -134,6 +136,7 @@ export default function SessionSpeedChart({
   useAbsoluteTime = false,
   isWindEstimated,
 }: Props) {
+  const { t } = useTranslation();
   const { chartData, minSec, maxSec } = useMemo(() => {
     if (!track || track.length === 0 || !Number.isFinite(sessionStartMs)) {
       return { chartData: [] as Array<{ t: number; sog: number; vmg: number | null }>, minSec: 0, maxSec: 0 };
@@ -189,7 +192,7 @@ export default function SessionSpeedChart({
   if (chartData.length === 0) {
     return (
       <div className="w-full flex items-center justify-center text-ink-muted text-caption italic" style={{ height }}>
-        Nessun dato di velocita' disponibile.
+        {t('speedChart.noSpeedData')}
       </div>
     );
   }
@@ -232,12 +235,12 @@ export default function SessionSpeedChart({
           <span
             className="flex items-center gap-1"
             title={isWindEstimated
-              ? 'VMG calcolata su vento stimato dal GPS (Stormglass non disponibile)'
-              : 'VMG calcolata su vento osservato da Stormglass'}
+              ? t('speedChart.vmgEstimatedTitle')
+              : t('speedChart.vmgObservedTitle')}
             style={{ color: isWindEstimated ? '#d4a345' : '#8a9a5b' }}
           >
             <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ backgroundColor: isWindEstimated ? '#d4a345' : '#8a9a5b' }} />
-            <span>{isWindEstimated ? 'Stimato GPS' : 'Stormglass'}</span>
+            <span>{isWindEstimated ? t('speedChart.vmgEstimatedPill') : t('speedChart.vmgObservedPill')}</span>
           </span>
         )}
       </div>
@@ -269,7 +272,7 @@ export default function SessionSpeedChart({
             tickLine={false}
             width={40}
           />
-          <Tooltip content={<CustomTooltip formatTick={formatTick} />} cursor={{ stroke: COLOR_LINE, strokeOpacity: 0.3, strokeWidth: 1 }} />
+          <Tooltip content={<CustomTooltip formatTick={formatTick} t={t} />} cursor={{ stroke: COLOR_LINE, strokeOpacity: 0.3, strokeWidth: 1 }} />
 
           <Line
             type="monotone"

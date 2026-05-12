@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 
 // Modal del glossario tecnico. Centralizza in un unico posto le definizioni
 // dei termini e delle sigle che compaiono nelle viste (TWA, VMG, V.IN/OUT,
@@ -14,197 +15,81 @@ interface Props {
   onClose: () => void;
 }
 
-interface Term {
-  // Nome esteso (forma serif italic). Es: "True Wind Direction"
-  name: string;
-  // Sigla in mono gold tra parentesi accanto al nome. Opzionale — alcuni
-  // termini (Bolina, Virata) non hanno acronimo.
-  sigla?: string;
-  // Etichetta principale prima della sigla — usata per i termini in cui
-  // il "titolo visibile" e' la sigla stessa (es. "TWD" prima di "True Wind
-  // Direction"). Quando assente si parte direttamente dal `name`.
+// Skeleton strutturale: i contenuti (titolo sezione, name, description) vengono
+// da i18n; qui restano solo i17ny / sigle (TWD, V.MIN, ΔV...) che non si traducono.
+interface TermRef {
+  // Chiave i18n in glossary.terms.<key>. Da qui risolviamo name/description.
+  key: string;
+  // Sigla mostrata in serif italic prima del name esteso (TWD, V.MIN, ΔV...).
+  // Quando assente, l'intestazione mostra direttamente il name tradotto.
   shortLabel?: string;
-  // Descrizione 2-4 frasi, plain text. Le interruzioni di paragrafo non
-  // sono supportate per scelta: ogni voce e' un blocco compatto.
-  description: string;
 }
 
-interface Section {
-  // Numero d'ordine mostrato nell'eyebrow (es. "01"). Stringa per
-  // preservare il padding "01" / "02" / "03".
+interface SectionRef {
   num: string;
-  // Titolo dell'eyebrow in uppercase.
-  title: string;
-  terms: Term[];
+  titleKey: 'wind' | 'movement' | 'pointsOfSail' | 'maneuverMetrics' | 'foiling' | 'data';
+  terms: TermRef[];
 }
 
-// Contenuto centralizzato. Aggiungere termini significa solo estendere
-// l'array — il rendering li scorre uniformemente.
-const SECTIONS: Section[] = [
+const SECTIONS: SectionRef[] = [
   {
     num: '01',
-    title: 'Vento',
+    titleKey: 'wind',
     terms: [
-      {
-        shortLabel: 'TWD',
-        name: 'True Wind Direction',
-        description:
-          'Direzione da cui proviene il vento reale, espressa in gradi (0°=Nord, 90°=Est, 180°=Sud, 270°=Ovest). In Varea può essere stimata dal GPS analizzando la distribuzione delle rotte oppure ricavata dall\u2019API Stormglass quando disponibile.',
-      },
-      {
-        shortLabel: 'TWS',
-        name: 'True Wind Speed',
-        description:
-          'Intensità del vento reale in nodi (kts): indica quanto forte sta tirando. In Varea proviene da Stormglass quando disponibile, altrimenti non viene calcolata.',
-      },
-      {
-        shortLabel: 'TWA',
-        name: 'True Wind Angle',
-        description:
-          'Angolo tra la rotta della barca (COG) e la direzione del vento (TWD). Range 0°-180°. Determina l\u2019andatura: TWA basso = bolina, TWA medio = traverso, TWA alto = poppa.',
-      },
+      { key: 'twd', shortLabel: 'TWD' },
+      { key: 'tws', shortLabel: 'TWS' },
+      { key: 'twa', shortLabel: 'TWA' },
     ],
   },
   {
     num: '02',
-    title: 'Movimento',
+    titleKey: 'movement',
     terms: [
-      {
-        shortLabel: 'SOG',
-        name: 'Speed Over Ground',
-        description:
-          'Velocità della barca rispetto al fondo, misurata dal GPS in nodi. È la velocità "vera" dell\u2019imbarcazione, indipendente da correnti.',
-      },
-      {
-        shortLabel: 'COG',
-        name: 'Course Over Ground',
-        description:
-          'Direzione del moto della barca rispetto al Nord, in gradi. Su molti orologi GPS Garmin questo dato manca o è zero — in quel caso Varea lo ricostruisce dai punti GPS consecutivi tramite calcolo del bearing sferico.',
-      },
-      {
-        shortLabel: 'VMG',
-        name: 'Velocity Made Good',
-        description:
-          'Componente della SOG nella direzione del vento. Formula: VMG = SOG × cos(TWA). Misura quanto efficacemente l\u2019atleta avanza verso il segnavento (in bolina) o si allontana (in poppa). Due atleti con SOG simile possono avere VMG molto diverse se navigano ad angoli diversi.',
-      },
+      { key: 'sog', shortLabel: 'SOG' },
+      { key: 'cog', shortLabel: 'COG' },
+      { key: 'vmg', shortLabel: 'VMG' },
     ],
   },
   {
     num: '03',
-    title: 'Andature e manovre',
+    titleKey: 'pointsOfSail',
     terms: [
-      {
-        name: 'Bolina',
-        description:
-          'Andatura controvento, TWA tipicamente 30°-60°. La barca risale verso il vento. È l\u2019andatura più tecnica e dove conta di più la VMG.',
-      },
-      {
-        name: 'Traverso',
-        description:
-          'Andatura con vento al traverso, TWA 60°-120°. Solitamente l\u2019andatura più veloce in assoluto.',
-      },
-      {
-        name: 'Lasco',
-        description: 'Andatura con vento da poppa angolato, TWA 120°-150°.',
-      },
-      {
-        name: 'Poppa',
-        description: 'Andatura con vento da dietro, TWA 150°-180°.',
-      },
-      {
-        name: 'Virata',
-        description:
-          'Manovra controvento: la barca passa con la prua attraverso il vento, cambiando lato di mura.',
-      },
-      {
-        name: 'Strambata',
-        sigla: 'GYBE',
-        description:
-          'Manovra in poppa: la barca passa con la poppa attraverso il vento, cambiando lato di mura.',
-      },
+      { key: 'bolina' },
+      { key: 'traverso' },
+      { key: 'lasco' },
+      { key: 'poppa' },
+      { key: 'virata' },
+      { key: 'strambata' },
     ],
   },
   {
     num: '04',
-    title: 'Metriche manovra',
+    titleKey: 'maneuverMetrics',
     terms: [
-      {
-        shortLabel: 'V.IN',
-        name: 'Velocità in ingresso',
-        description:
-          'SOG nei secondi prima della manovra. Indica con quanta velocità l\u2019atleta arriva alla virata o strambata.',
-      },
-      {
-        shortLabel: 'V.MIN',
-        name: 'Velocità minima',
-        description:
-          'SOG più bassa raggiunta durante la manovra. Misura quanta velocità si "perde" nel passaggio.',
-      },
-      {
-        shortLabel: 'V.OUT',
-        name: 'Velocità in uscita',
-        description:
-          'SOG nei secondi dopo la manovra, una volta stabilizzata.',
-      },
-      {
-        shortLabel: 'ΔV',
-        name: 'Delta-V',
-        description:
-          'Differenza tra V.OUT e V.IN. Positivo = la manovra ha lasciato l\u2019atleta più veloce; negativo = ha perso velocità. Metrica chiave per valutare la qualità della manovra.',
-      },
-      {
-        shortLabel: 'TTR',
-        name: 'Time To Recovery 50%',
-        description:
-          'Tempo in secondi necessario per recuperare il 50% della velocità persa durante la manovra. Più basso = manovra più efficiente.',
-      },
+      { key: 'vIn', shortLabel: 'V.IN' },
+      { key: 'vMin', shortLabel: 'V.MIN' },
+      { key: 'vOut', shortLabel: 'V.OUT' },
+      { key: 'deltaV', shortLabel: 'ΔV' },
+      { key: 'ttr', shortLabel: 'TTR' },
     ],
   },
   {
     num: '05',
-    title: 'Foiling',
+    titleKey: 'foiling',
     terms: [
-      {
-        name: 'FLY',
-        description:
-          'Stato in cui la tavola è in volo sull\u2019idroala, con SOG sopra la soglia configurata (default 12 kts). Una manovra "fly" è una virata o strambata eseguita mantenendo il volo.',
-      },
-      {
-        name: 'TOUCH',
-        description:
-          'Stato in cui la tavola tocca l\u2019acqua, con SOG sotto la soglia foiling. Una manovra "touch" significa che l\u2019atleta ha perso il volo durante l\u2019esecuzione.',
-      },
-      {
-        name: 'Soglia foiling',
-        description:
-          'Velocità SOG (configurabile dall\u2019utente) sopra la quale Varea considera l\u2019atleta in volo. Default: 12 kts. Modificabile nelle viste Manovre e Laboratorio.',
-      },
-      {
-        name: 'Foiling ratio',
-        description:
-          'Percentuale di tempo in cui la SOG è stata sopra la soglia foiling. Indica quanto della sessione è stata effettivamente in volo.',
-      },
+      { key: 'fly' },
+      { key: 'touch' },
+      { key: 'soglia' },
+      { key: 'foilingRatio' },
     ],
   },
   {
     num: '06',
-    title: 'Dati',
+    titleKey: 'data',
     terms: [
-      {
-        name: 'Stormglass',
-        description:
-          'Servizio API che fornisce dati storici di vento (TWD, TWS), correnti e onde per coordinate geografiche e date specifiche. Quando disponibile, Varea lo usa come fonte primaria per il vento. Il pallino verde "DA STORMGLASS" indica che i dati provengono dall\u2019API.',
-      },
-      {
-        name: '1 Hz',
-        description:
-          'Frequenza di campionamento dei dati GPS: un punto al secondo. Tutti i dati in Varea sono ricampionati a 1 Hz dopo il parsing del file FIT originale.',
-      },
-      {
-        name: 'FIT',
-        description:
-          'Formato file binario standard di Garmin per registrare attività sportive. Contiene punti GPS, timestamp e metadati della sessione.',
-      },
+      { key: 'stormglass' },
+      { key: 'hz' },
+      { key: 'fit' },
     ],
   },
 ];
@@ -222,15 +107,8 @@ const eyebrowStyle: React.CSSProperties = {
   whiteSpace: 'nowrap',
 };
 
-const siglaStyle: React.CSSProperties = {
-  fontFamily: 'var(--mono)',
-  fontSize: 11,
-  letterSpacing: '0.1em',
-  textTransform: 'uppercase',
-  color: 'rgb(var(--gold))',
-};
-
 export default function GlossaryModal({ onClose }: Props) {
+  const { t } = useTranslation();
   const panelRef = useRef<HTMLDivElement>(null);
 
   // Body scroll lock + ESC handler. Il listener viene rimosso al cleanup
@@ -298,15 +176,15 @@ export default function GlossaryModal({ onClose }: Props) {
               className="font-serif italic"
               style={{ fontSize: 24, color: 'rgb(var(--ink))', lineHeight: 1.1 }}
             >
-              Glossario · Termini e sigle
+              {t('glossary.title')}
             </h2>
             <p style={{ ...eyebrowStyle, marginTop: 8 }}>
-              Riferimento rapido per le metriche e i concetti usati in Varea
+              {t('glossary.subtitle')}
             </p>
           </div>
           <button
             type="button"
-            aria-label="Chiudi glossario"
+            aria-label={t('glossary.closeAria')}
             onClick={onClose}
             className="shrink-0 transition-colors duration-220 ease-varea"
             style={{
@@ -349,7 +227,7 @@ export default function GlossaryModal({ onClose }: Props) {
                 style={{ marginBottom: 14 }}
               >
                 <span style={eyebrowStyle}>
-                  {section.num} · {section.title}
+                  {section.num} · {t(`glossary.sections.${section.titleKey}`)}
                 </span>
                 <span
                   className="flex-1"
@@ -357,46 +235,47 @@ export default function GlossaryModal({ onClose }: Props) {
                 />
               </div>
 
-              {section.terms.map((term, i) => (
-                <article
-                  key={`${section.num}-${i}`}
-                  style={{ marginBottom: 18 }}
-                >
-                  <h3
-                    className="flex items-baseline flex-wrap gap-2"
-                    style={{ marginBottom: 4 }}
+              {section.terms.map((term) => {
+                const name = t(`glossary.terms.${term.key}.name`);
+                const description = t(`glossary.terms.${term.key}.description`);
+                return (
+                  <article
+                    key={`${section.num}-${term.key}`}
+                    style={{ marginBottom: 18 }}
                   >
-                    <span
-                      className="font-serif italic"
-                      style={{ fontSize: 16, color: 'rgb(var(--ink))', lineHeight: 1.2 }}
+                    <h3
+                      className="flex items-baseline flex-wrap gap-2"
+                      style={{ marginBottom: 4 }}
                     >
-                      {term.shortLabel ?? term.name}
-                    </span>
-                    {term.shortLabel && (
                       <span
                         className="font-serif italic"
-                        style={{ fontSize: 14, color: 'rgb(var(--ink-2))', lineHeight: 1.2 }}
+                        style={{ fontSize: 16, color: 'rgb(var(--ink))', lineHeight: 1.2 }}
                       >
-                        — {term.name}
+                        {term.shortLabel ?? name}
                       </span>
-                    )}
-                    {term.sigla && !term.shortLabel && (
-                      <span style={siglaStyle}>({term.sigla})</span>
-                    )}
-                  </h3>
-                  <p
-                    style={{
-                      fontFamily: 'var(--sans)',
-                      fontSize: 13,
-                      lineHeight: 1.55,
-                      color: 'rgb(var(--ink-2))',
-                      margin: 0,
-                    }}
-                  >
-                    {term.description}
-                  </p>
-                </article>
-              ))}
+                      {term.shortLabel && (
+                        <span
+                          className="font-serif italic"
+                          style={{ fontSize: 14, color: 'rgb(var(--ink-2))', lineHeight: 1.2 }}
+                        >
+                          — {name}
+                        </span>
+                      )}
+                    </h3>
+                    <p
+                      style={{
+                        fontFamily: 'var(--sans)',
+                        fontSize: 13,
+                        lineHeight: 1.55,
+                        color: 'rgb(var(--ink-2))',
+                        margin: 0,
+                      }}
+                    >
+                      {description}
+                    </p>
+                  </article>
+                );
+              })}
             </section>
           ))}
         </div>

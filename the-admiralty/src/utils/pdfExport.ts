@@ -9,6 +9,7 @@
 
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import type { TFunction } from 'i18next';
 import type {
   TrackPoint,
   HighResPoint,
@@ -42,6 +43,12 @@ export interface PdfExportInput {
   // temporale dal chiamante). Default array vuoto cosi' il chiamante puo'
   // omettere il campo per sessioni senza note.
   coachAnnotations?: CoachNote[];
+  // Funzione di traduzione i18next: tutto il testo user-facing del PDF
+  // (header, label, descrizioni sezioni, legenda) passa da qui.
+  t: TFunction;
+  // Locale BCP-47 per le date (es. 'it-IT', 'en-US'). Indipendente da
+  // `t` perche' jsPDF chiama direttamente Intl.DateTimeFormat.
+  locale: string;
 }
 
 // --- COLORI ---
@@ -84,13 +91,13 @@ function colorForAndatura(c: 'bolina' | 'traverso' | 'lasco' | 'unknown'): strin
   return C.unknown;
 }
 
-function fmtClock(ms: number): string {
+function fmtClock(ms: number, locale: string): string {
   // Orario locale leggibile (l'utente ragiona in ora locale, non UTC).
-  return new Date(ms).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  return new Date(ms).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
-function fmtDate(ms: number): string {
-  return new Date(ms).toLocaleDateString('it-IT', { day: '2-digit', month: 'long', year: 'numeric' });
+function fmtDate(ms: number, locale: string): string {
+  return new Date(ms).toLocaleDateString(locale, { day: '2-digit', month: 'long', year: 'numeric' });
 }
 
 function fmtDuration(secs: number): string {
@@ -373,6 +380,7 @@ export async function generateSessionReport(input: PdfExportInput): Promise<void
     rangeStartMs, rangeEndMs, athleteName, flyThreshold, coachNotes,
     sessionStartIsoFull, fileName,
     coachAnnotations = [],
+    t, locale,
   } = input;
 
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
@@ -391,7 +399,7 @@ export async function generateSessionReport(input: PdfExportInput): Promise<void
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
   doc.setTextColor(C.gold);
-  doc.text(safeText('TELEMETRY ANALYTICS  ·  REPORT DI SESSIONE'), marginX, cursorY);
+  doc.text(safeText(t('pdf.header')), marginX, cursorY);
   cursorY += mm(2);
   // Filo brass decorativo.
   doc.setDrawColor(C.gold);
@@ -425,27 +433,27 @@ export async function generateSessionReport(input: PdfExportInput): Promise<void
   doc.setFontSize(10);
   doc.setTextColor(C.ink);
 
-  const sessionDate = fmtDate(rangeStartMs);
+  const sessionDate = fmtDate(rangeStartMs, locale);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(13);
-  doc.text(safeText(`Sessione del ${sessionDate}`), marginX, cursorY);
+  doc.text(safeText(t('pdf.sessionOf', { date: sessionDate })), marginX, cursorY);
   cursorY += mm(6);
 
   // Tabella KV identificativi (nessun header, due colonne).
   const kvIdent: [string, string][] = [
-    ['File', fileName || sessionInfo.file_name],
-    ['Periodo selezionato', `${fmtClock(rangeStartMs)} -> ${fmtClock(rangeEndMs)} (${fmtDuration(periodSecs)})`],
-    ['Coordinate medie', avgLat != null && avgLon != null
-      ? `${avgLat.toFixed(4)}, ${avgLon.toFixed(4)}` : 'dati insufficienti'],
-    ['TWD stimato', `${sessionInfo ? safeNum(environment.computed_twd_deg, 0) : '--'}°`],
-    ['Fonte vento', environment.is_estimated ? 'GPS (stimato)' : 'Stormglass (osservato)'],
-    ['Soglia foiling', `${safeNum(flyThreshold, 1)} kts`],
-    ['Atleta', athleteName.trim() || '(non specificato)'],
+    [t('pdf.file'), fileName || sessionInfo.file_name],
+    [t('pdf.periodSelected'), `${fmtClock(rangeStartMs, locale)} -> ${fmtClock(rangeEndMs, locale)} (${fmtDuration(periodSecs)})`],
+    [t('pdf.avgCoordinates'), avgLat != null && avgLon != null
+      ? `${avgLat.toFixed(4)}, ${avgLon.toFixed(4)}` : t('common.insufficientData')],
+    [t('pdf.twdEstimated'), `${sessionInfo ? safeNum(environment.computed_twd_deg, 0) : '--'}°`],
+    [t('pdf.windSource'), environment.is_estimated ? t('pdf.windSourceGps') : t('pdf.windSourceStormglass')],
+    [t('pdf.foilingThreshold'), `${safeNum(flyThreshold, 1)} kts`],
+    [t('pdf.athlete'), athleteName.trim() || t('pdf.athleteUnspecified')],
   ];
   if (isFullSession) {
-    kvIdent.splice(2, 0, ['Copertura', 'sessione completa']);
+    kvIdent.splice(2, 0, [t('pdf.coverage'), t('pdf.coverageFull')]);
   } else {
-    kvIdent.splice(2, 0, ['Copertura', 'segmento filtrato']);
+    kvIdent.splice(2, 0, [t('pdf.coverage'), t('pdf.coverageFiltered')]);
   }
 
   autoTable(doc, {
@@ -464,30 +472,31 @@ export async function generateSessionReport(input: PdfExportInput): Promise<void
 
   // ---------- METRICHE AGGREGATE ----------
   cursorY = ensureSpace(doc, cursorY, mm(80), pageH);
-  cursorY = sectionTitle(doc, 'Metriche aggregate', cursorY, marginX);
-  cursorY = sectionDesc(doc, 'Velocita\' media e di picco, tempo trascorso in foiling, VMG e ripartizione delle andature nel periodo.', cursorY, marginX, contentW);
+  cursorY = sectionTitle(doc, t('pdf.aggregateMetrics'), cursorY, marginX);
+  cursorY = sectionDesc(doc, t('pdf.aggregateDesc'), cursorY, marginX, contentW);
 
   const agg = computeAggregates(trackData, flyThreshold);
   const distNm = computeDistanceNm(highResTrack.length > 0 ? highResTrack : trackData);
+  const insuf = t('common.insufficientData');
 
   const aggRows: [string, string, string][] = [
-    ['Velocita\' media', agg.sogAvg != null ? safeNum(agg.sogAvg, 1) : 'dati insufficienti', 'kts'],
-    ['Velocita\' massima', agg.sogMax != null ? safeNum(agg.sogMax, 1) : 'dati insufficienti', 'kts'],
-    ['Tempo in foiling', agg.pctFoiling != null ? `${safeNum(agg.pctFoiling, 1)}` : 'dati insufficienti', '% del periodo'],
-    ['Distanza coperta', distNm > 0 ? safeNum(distNm, 2) : 'dati insufficienti', 'NM'],
-    ['VMG bolina', agg.vmgUpwind != null ? safeNum(agg.vmgUpwind, 2) : 'dati insufficienti', 'kts'],
-    ['VMG lasco/poppa', agg.vmgDownwind != null ? safeNum(agg.vmgDownwind, 2) : 'dati insufficienti', 'kts'],
-    ['Tempo in bolina', `${safeNum(agg.distBolinaPct, 1)}`, '%'],
-    ['Tempo in traverso', `${safeNum(agg.distTraversoPct, 1)}`, '%'],
-    ['Tempo in lasco/poppa', `${safeNum(agg.distLascoPct, 1)}`, '%'],
+    [t('pdf.avgSpeed'), agg.sogAvg != null ? safeNum(agg.sogAvg, 1) : insuf, 'kts'],
+    [t('pdf.maxSpeed'), agg.sogMax != null ? safeNum(agg.sogMax, 1) : insuf, 'kts'],
+    [t('pdf.timeFoiling'), agg.pctFoiling != null ? `${safeNum(agg.pctFoiling, 1)}` : insuf, t('pdf.pctOfPeriod')],
+    [t('pdf.distanceCovered'), distNm > 0 ? safeNum(distNm, 2) : insuf, 'NM'],
+    [t('pdf.vmgUpwind'), agg.vmgUpwind != null ? safeNum(agg.vmgUpwind, 2) : insuf, 'kts'],
+    [t('pdf.vmgBroad'), agg.vmgDownwind != null ? safeNum(agg.vmgDownwind, 2) : insuf, 'kts'],
+    [t('pdf.timeUpwind'), `${safeNum(agg.distBolinaPct, 1)}`, '%'],
+    [t('pdf.timeReach'), `${safeNum(agg.distTraversoPct, 1)}`, '%'],
+    [t('pdf.timeBroad'), `${safeNum(agg.distLascoPct, 1)}`, '%'],
   ];
   if (agg.distUnknownPct >= 1) {
-    aggRows.push(['Andatura non classificata', `${safeNum(agg.distUnknownPct, 1)}`, '%']);
+    aggRows.push([t('pdf.unclassified'), `${safeNum(agg.distUnknownPct, 1)}`, '%']);
   }
 
   autoTable(doc, {
     startY: cursorY,
-    head: [['Metrica', 'Valore', 'Unita\'']],
+    head: [[t('pdf.metric'), t('pdf.value'), t('pdf.unit')]],
     body: aggRows.map(r => r.map(safeText)),
     theme: 'striped',
     headStyles: { fillColor: C.ink, textColor: C.gold, fontStyle: 'bold', fontSize: 10 },
@@ -506,14 +515,14 @@ export async function generateSessionReport(input: PdfExportInput): Promise<void
 
   // ---------- ANALISI MANOVRE ----------
   cursorY = ensureSpace(doc, cursorY, mm(60), pageH);
-  cursorY = sectionTitle(doc, 'Analisi manovre', cursorY, marginX);
-  cursorY = sectionDesc(doc, 'Una riga per ogni manovra rilevata nel periodo. Verde = delta-v migliore del 75 percentile, rosso = peggiore del 25.', cursorY, marginX, contentW);
+  cursorY = sectionTitle(doc, t('pdf.maneuverAnalysis'), cursorY, marginX);
+  cursorY = sectionDesc(doc, t('pdf.maneuverAnalysisDesc'), cursorY, marginX, contentW);
 
   if (maneuvers.length === 0) {
     doc.setFont('helvetica', 'italic');
     doc.setFontSize(10);
     doc.setTextColor(C.inkSoft);
-    doc.text(safeText('Nessuna manovra rilevata nel periodo selezionato.'), marginX, cursorY);
+    doc.text(safeText(t('pdf.noManeuversInPeriod')), marginX, cursorY);
     cursorY += mm(8);
   } else {
     const dvs = maneuvers.map(m => Number(m.delta_v)).filter(v => Number.isFinite(v));
@@ -523,7 +532,7 @@ export async function generateSessionReport(input: PdfExportInput): Promise<void
 
     const body = maneuvers.map(m => {
       const tsMs = parseBackendTimestamp(m.timestamp);
-      const ts = Number.isFinite(tsMs) ? fmtClock(tsMs) : '--';
+      const ts = Number.isFinite(tsMs) ? fmtClock(tsMs, locale) : '--';
       const dv = Number(m.delta_v);
       return [
         ts,
@@ -537,7 +546,7 @@ export async function generateSessionReport(input: PdfExportInput): Promise<void
 
     autoTable(doc, {
       startY: cursorY,
-      head: [['Orario', 'Tipo', 'SOG ingresso (kts)', 'SOG minima (kts)', 'Delta-v (kts)', 'Durata (s)']],
+      head: [[t('pdf.time'), t('pdf.type'), t('pdf.sogIn'), t('pdf.sogMin'), t('pdf.deltaV'), t('pdf.durationSec')]],
       body: body.map(row => row.map(safeText)),
       theme: 'striped',
       headStyles: { fillColor: C.ink, textColor: C.gold, fontStyle: 'bold', fontSize: 9 },
@@ -570,7 +579,11 @@ export async function generateSessionReport(input: PdfExportInput): Promise<void
       doc.setFontSize(10);
       doc.setTextColor(C.ink);
       doc.text(
-        safeText(`Riepilogo delta-v: media ${stats.mean.toFixed(2)} kts  ·  dev. std ${stats.std.toFixed(2)} kts  ·  ${maneuvers.length} manovre`),
+        safeText(t('pdf.deltaSummary', {
+          mean: stats.mean.toFixed(2),
+          std: stats.std.toFixed(2),
+          count: maneuvers.length,
+        })),
         marginX,
         cursorY,
       );
@@ -582,8 +595,8 @@ export async function generateSessionReport(input: PdfExportInput): Promise<void
 
   // ---------- TRACCIATO GPS ----------
   cursorY = ensureSpace(doc, cursorY, mm(110), pageH);
-  cursorY = sectionTitle(doc, 'Tracciato GPS', cursorY, marginX);
-  cursorY = sectionDesc(doc, 'Percorso del periodo, colorato per andatura. Pallino verde = inizio, rosso = fine.', cursorY, marginX, contentW);
+  cursorY = sectionTitle(doc, t('pdf.gpsTrack'), cursorY, marginX);
+  cursorY = sectionDesc(doc, t('pdf.gpsTrackDesc'), cursorY, marginX, contentW);
 
   const trackPoints: (TrackPoint | HighResPoint)[] = highResTrack.length > 0 ? highResTrack : trackData;
   const trackImg = renderTrackToDataUrl(trackPoints);
@@ -596,9 +609,9 @@ export async function generateSessionReport(input: PdfExportInput): Promise<void
 
     // Legenda andature
     const legendItems: Array<[string, string]> = [
-      ['Bolina', C.bolina],
-      ['Traverso', C.traverso],
-      ['Lasco/Poppa', C.lasco],
+      [t('pdf.legendUpwind'), C.bolina],
+      [t('pdf.legendReach'), C.traverso],
+      [t('pdf.legendBroad'), C.lasco],
     ];
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
@@ -615,7 +628,7 @@ export async function generateSessionReport(input: PdfExportInput): Promise<void
     doc.setFont('helvetica', 'italic');
     doc.setFontSize(10);
     doc.setTextColor(C.inkSoft);
-    doc.text(safeText('Tracciato non disponibile: dati di posizione insufficienti.'), marginX, cursorY);
+    doc.text(safeText(t('pdf.trackUnavailable')), marginX, cursorY);
     cursorY += mm(8);
   }
 
@@ -626,20 +639,20 @@ export async function generateSessionReport(input: PdfExportInput): Promise<void
   // ma riordiniamo difensivamente per non dipendere dall'ordine di input).
   if (coachAnnotations.length > 0) {
     cursorY = ensureSpace(doc, cursorY, mm(40), pageH);
-    cursorY = sectionTitle(doc, 'Note allenatore', cursorY, marginX);
-    cursorY = sectionDesc(doc, 'Annotazioni temporali sui momenti chiave del periodo selezionato.', cursorY, marginX, contentW);
+    cursorY = sectionTitle(doc, t('pdf.coachNotes'), cursorY, marginX);
+    cursorY = sectionDesc(doc, t('pdf.coachNotesDesc'), cursorY, marginX, contentW);
 
     const sortedNotes = [...coachAnnotations].sort((a, b) => a.timestampSec - b.timestampSec);
     const fullStartMsLocal = parseBackendTimestamp(sessionStartIsoFull);
     const noteRows = sortedNotes.map((n, i) => {
       const ms = Number.isFinite(fullStartMsLocal) ? fullStartMsLocal + n.timestampSec * 1000 : NaN;
-      const ts = Number.isFinite(ms) ? fmtClock(ms) : `+${n.timestampSec}s`;
+      const ts = Number.isFinite(ms) ? fmtClock(ms, locale) : `+${n.timestampSec}s`;
       return [String(i + 1), ts, n.text];
     });
 
     autoTable(doc, {
       startY: cursorY,
-      head: [['#', 'Orario', 'Annotazione']],
+      head: [[t('pdf.noteIndex'), t('pdf.noteTime'), t('pdf.noteText')]],
       body: noteRows.map(row => row.map(safeText)),
       theme: 'striped',
       headStyles: { fillColor: C.ink, textColor: C.gold, fontStyle: 'bold', fontSize: 10 },
@@ -663,15 +676,15 @@ export async function generateSessionReport(input: PdfExportInput): Promise<void
   const includesStart = Number.isFinite(fullStartMs) && rangeStartMs <= fullStartMs + 60_000;
   if (includesStart) {
     cursorY = ensureSpace(doc, cursorY, mm(35), pageH);
-    cursorY = sectionTitle(doc, 'Analisi partenza', cursorY, marginX);
-    cursorY = sectionDesc(doc, 'Stato dell\'atleta al momento del via e tempo necessario per stabilizzare il foiling.', cursorY, marginX, contentW);
+    cursorY = sectionTitle(doc, t('pdf.startAnalysis'), cursorY, marginX);
+    cursorY = sectionDesc(doc, t('pdf.startAnalysisDesc'), cursorY, marginX, contentW);
 
     const startAnalysis = computeStartAnalysis(highResTrack, flyThreshold);
     const startRows: [string, string][] = [
-      ['SOG al via', startAnalysis.startSog != null ? `${safeNum(startAnalysis.startSog, 1)} kts` : 'dati insufficienti'],
-      ['Tempo al primo foiling', startAnalysis.timeToFirstFoilingSec != null
+      [t('pdf.sogAtStart'), startAnalysis.startSog != null ? `${safeNum(startAnalysis.startSog, 1)} kts` : t('common.insufficientData')],
+      [t('pdf.timeToFirstFoiling'), startAnalysis.timeToFirstFoilingSec != null
         ? `${startAnalysis.timeToFirstFoilingSec.toFixed(1)} s`
-        : 'soglia mai raggiunta nel periodo'],
+        : t('pdf.thresholdNotReached')],
     ];
     autoTable(doc, {
       startY: cursorY,
@@ -690,7 +703,7 @@ export async function generateSessionReport(input: PdfExportInput): Promise<void
 
   // ---------- NOTE ----------
   cursorY = ensureSpace(doc, cursorY, mm(70), pageH);
-  cursorY = sectionTitle(doc, 'Note', cursorY, marginX);
+  cursorY = sectionTitle(doc, t('pdf.notes'), cursorY, marginX);
 
   const trimmedNotes = coachNotes.trim();
   if (trimmedNotes.length > 0) {
@@ -704,7 +717,7 @@ export async function generateSessionReport(input: PdfExportInput): Promise<void
     doc.setFont('helvetica', 'italic');
     doc.setFontSize(10);
     doc.setTextColor(C.inkSoft);
-    doc.text(safeText('Nessuna nota inserita.'), marginX, cursorY);
+    doc.text(safeText(t('pdf.noNotes')), marginX, cursorY);
     cursorY += mm(6);
   }
 
@@ -719,13 +732,13 @@ export async function generateSessionReport(input: PdfExportInput): Promise<void
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(12);
     doc.setTextColor(C.ink);
-    doc.text(safeText('Note (continua)'), marginX, cursorY);
+    doc.text(safeText(t('pdf.notesContinued')), marginX, cursorY);
     cursorY += mm(8);
   }
   doc.setFont('helvetica', 'italic');
   doc.setFontSize(9);
   doc.setTextColor(C.inkSoft);
-  doc.text(safeText('Spazio per annotazioni manuali:'), marginX, cursorY);
+  doc.text(safeText(t('pdf.manualAnnotationsLabel')), marginX, cursorY);
   cursorY += mm(4);
   doc.setDrawColor(C.border);
   doc.setLineWidth(0.3);
@@ -735,14 +748,14 @@ export async function generateSessionReport(input: PdfExportInput): Promise<void
 
   // ---------- FOOTER (numero pagina + timestamp di generazione) ----------
   const totalPages = doc.getNumberOfPages();
-  const generatedAt = new Date().toLocaleString('it-IT', { dateStyle: 'medium', timeStyle: 'short' });
+  const generatedAt = new Date().toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' });
   for (let i = 1; i <= totalPages; i++) {
     doc.setPage(i);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
     doc.setTextColor(C.inkSoft);
-    doc.text(safeText(`Generato il ${generatedAt}`), marginX, pageH - mm(8));
-    doc.text(safeText(`Pagina ${i} di ${totalPages}`), pageW - marginX, pageH - mm(8), { align: 'right' });
+    doc.text(safeText(t('pdf.generatedAt', { date: generatedAt })), marginX, pageH - mm(8));
+    doc.text(safeText(t('pdf.pageOf', { current: i, total: totalPages })), pageW - marginX, pageH - mm(8), { align: 'right' });
     // Filo brass sottile a fondo pagina
     doc.setDrawColor(C.gold);
     doc.setLineWidth(0.3);
@@ -752,7 +765,7 @@ export async function generateSessionReport(input: PdfExportInput): Promise<void
   // Nome file: include nome atleta se disponibile, sempre data ISO breve.
   const dt = new Date(rangeStartMs);
   const isoShort = `${dt.getFullYear()}${String(dt.getMonth() + 1).padStart(2, '0')}${String(dt.getDate()).padStart(2, '0')}`;
-  const baseName = (athleteName.trim() || 'atleta').replace(/[^a-zA-Z0-9_-]+/g, '_');
+  const baseName = (athleteName.trim() || t('pdf.fileNameAthleteDefault')).replace(/[^a-zA-Z0-9_-]+/g, '_');
   doc.save(`varea_report_${baseName}_${isoShort}.pdf`);
 }
 

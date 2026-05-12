@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useRef, lazy, Suspense } from 'react';
+import { useTranslation } from 'react-i18next';
 import ManeuverSpeedChart from './ManeuverSpeedChart';
 import FlyThresholdControl from '../FlyThresholdControl';
 import NoteEditPopup from '../NoteEditPopup';
@@ -76,6 +77,8 @@ interface NotePopupState {
 }
 
 export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresholdChange, isWindEstimated }: ManeuverFootprintProps) {
+  const { t, i18n } = useTranslation();
+  const timeLocale = i18n.language === 'en' ? 'en-GB' : 'it-IT';
   // 'FLY' / 'TOUCH' filtrano la lista manovre. 'POLAR' e' una vista
   // alternativa (chart polar + stats) che sostituisce il layout list+detail
   // a parita' di filtro temporale del clock. Lo stato di selezione manovra
@@ -180,14 +183,14 @@ export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresho
   };
 
   const formatTime = (ts: string) => {
-    if (!ts) return 'N/D';
+    if (!ts) return t('common.na');
     try {
       // Backend emette UTC con offset esplicito (`+00:00`); parseBackendTimestamp
       // gestisce anche le forme storiche `Z` o tz-naive. toLocaleTimeString
       // converte nel fuso del browser (=fuso di regata).
       const ms = parseBackendTimestamp(ts);
       if (isNaN(ms)) return ts;
-      return new Date(ms).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      return new Date(ms).toLocaleTimeString(timeLocale, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     } catch {
       return ts;
     }
@@ -362,7 +365,7 @@ export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresho
   if (sessions.length === 0) {
     return (
       <div className="flex items-center justify-center h-[400px] bg-surface-1 eyebrow">
-        Nessuna sessione visibile
+        {t('footprint.noVisibleSession')}
       </div>
     );
   }
@@ -372,7 +375,7 @@ export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresho
       {/* Selettore atleta — visibile solo in multi */}
       {isMulti && (
         <div className="px-4 py-2 border-b border-border bg-surface-1 flex items-center gap-3 overflow-x-auto">
-          <span className="eyebrow shrink-0">Atleta</span>
+          <span className="eyebrow shrink-0">{t('maneuvers.athlete')}</span>
           <div className="flex gap-2">
             {sessions.map(s => {
               const isActive = activeSession?.id === s.id;
@@ -413,7 +416,7 @@ export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresho
             }`}
           >
             <span className="w-1.5 h-1.5 rounded-full bg-sage" />
-            Manovre Fly
+            {t('footprint.flyManeuvers')}
           </button>
           <button
             onClick={() => setMode('TOUCH')}
@@ -422,7 +425,7 @@ export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresho
             }`}
           >
             <span className="w-1.5 h-1.5 rounded-full bg-amber" />
-            Manovre Touch
+            {t('footprint.touchManeuvers')}
           </button>
           <button
             onClick={() => setMode('POLAR')}
@@ -441,18 +444,18 @@ export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresho
                 fillOpacity={mode === 'POLAR' ? 1 : 0}
               />
             </svg>
-            Polar
+            {t('footprint.polar')}
           </button>
         </div>
         <div className="flex items-center gap-4">
           <FlyThresholdControl
             value={flyThreshold}
             onChange={onFlyThresholdChange}
-            label="Soglia FLY/TOUCH"
+            label={t('footprint.flyTouchThreshold')}
           />
           {mode !== 'POLAR' && (
             <span className="eyebrow">
-              {sortedManeuvers.length} in categoria
+              {t('footprint.inCategory', { count: sortedManeuvers.length })}
             </span>
           )}
         </div>
@@ -462,7 +465,7 @@ export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresho
         {mode === 'POLAR' ? (
           <Suspense fallback={
             <div className="flex-1 flex items-center justify-center bg-[#050d1a] text-eyebrow uppercase tracking-eyebrow text-ink-muted">
-              Caricamento polar…
+              {t('footprint.loadingPolar')}
             </div>
           }>
             <PolarView
@@ -477,7 +480,7 @@ export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresho
         {/* Lista laterale */}
         <div className="w-80 border-r border-border overflow-y-auto bg-surface-1 divide-y divide-border z-20">
           {sortedManeuvers.length === 0 ? (
-            <div className="p-6 text-center eyebrow mt-10">Nessuna manovra</div>
+            <div className="p-6 text-center eyebrow mt-10">{t('footprint.noManeuver')}</div>
           ) : (
             sortedManeuvers.map((m, i) => {
               const status = getFoilingStatus(Number(m.sog_min) || 0, flyThreshold);
@@ -527,7 +530,7 @@ export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresho
 
                   <div className="grid grid-cols-2 gap-2 mb-3">
                     <div className="bg-bg border border-border rounded-md p-2 text-center">
-                      <div className={`eyebrow mb-0.5 ${isSelected ? 'text-ink' : ''}`}>Vel min</div>
+                      <div className={`eyebrow mb-0.5 ${isSelected ? 'text-ink' : ''}`}>{t('footprint.velMin')}</div>
                       <div className={`text-lg font-mono tabular ${status.color}`}>
                         {(Number(m.sog_min) || 0).toFixed(1)}
                         <span className={`text-caption ml-1 ${isSelected ? 'text-ink-2' : 'text-ink-muted'}`}>kts</span>
@@ -546,7 +549,7 @@ export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresho
                     <span>{formatTime(m.timestamp)}</span>
                     {m.leg_distance_nm !== undefined && (
                       <span className="text-gold bg-gold/10 px-1.5 py-0.5 rounded-sm border border-gold/20">
-                        Lato {m.leg_distance_nm.toFixed(2)} NM
+                        {t('footprint.legDistance', { value: m.leg_distance_nm.toFixed(2) })}
                       </span>
                     )}
                   </div>
@@ -566,10 +569,10 @@ export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresho
           {activeManeuver && (
             <div className="px-6 py-2.5 border-b border-border bg-surface-1 shrink-0 flex items-baseline gap-3 flex-wrap">
               <span className="text-eyebrow uppercase tracking-eyebrow text-ink-muted">
-                Manovra
+                {t('maneuvers.maneuver')}
               </span>
               <span className="font-serif italic text-base text-ink leading-none">
-                {activeManeuver.type}
+                {activeManeuver.type === 'Virata' ? t('maneuvers.tack') : activeManeuver.type === 'Strambata' ? t('maneuvers.gybe') : activeManeuver.type}
               </span>
               <span className="font-mono tabular text-body text-gold leading-none">
                 {formatTime(activeManeuver.timestamp)}
@@ -699,12 +702,12 @@ export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresho
 
                 <g transform={`translate(${renderData.points[0].x}, ${renderData.points[0].y})`}>
                   <circle cx="0" cy="0" r={renderData.baseStroke * 1.5} fill="none" stroke="white" strokeWidth={renderData.baseStroke * 0.3} opacity="0.5" />
-                  <text x={renderData.baseStroke * 3} y="0" fill="white" fontSize={renderData.baseStroke * 4} opacity="0.5" dominantBaseline="middle" className="tracking-widest uppercase">Inizio</text>
+                  <text x={renderData.baseStroke * 3} y="0" fill="white" fontSize={renderData.baseStroke * 4} opacity="0.5" dominantBaseline="middle" className="tracking-widest uppercase">{t('footprint.start')}</text>
                 </g>
 
                 <g transform={`translate(${renderData.points[renderData.points.length - 1].x}, ${renderData.points[renderData.points.length - 1].y})`}>
                   <rect x={-renderData.baseStroke} y={-renderData.baseStroke} width={renderData.baseStroke * 2} height={renderData.baseStroke * 2} fill="white" opacity="0.8" />
-                  <text x={renderData.baseStroke * 3} y="0" fill="white" fontSize={renderData.baseStroke * 4} opacity="0.8" dominantBaseline="middle" className="tracking-widest uppercase">Fine</text>
+                  <text x={renderData.baseStroke * 3} y="0" fill="white" fontSize={renderData.baseStroke * 4} opacity="0.8" dominantBaseline="middle" className="tracking-widest uppercase">{t('footprint.end')}</text>
                 </g>
 
                 <g transform={`translate(${renderData.turnPoint.x}, ${renderData.turnPoint.y}) rotate(${renderData.turnPoint.visualHeading})`}>
@@ -731,7 +734,7 @@ export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresho
               </svg>
             ) : (
               <div className="text-white/60 eyebrow z-10 bg-black/40 px-6 py-4 rounded-md border border-white/10">
-                Traiettoria incompleta per questo segmento.
+                {t('footprint.incompleteTrajectory')}
               </div>
             )}
 
@@ -749,7 +752,7 @@ export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresho
             {activeManeuver && activeStatus && (
               <div className="absolute top-6 left-6 flex gap-3 pointer-events-none">
                 <div className="bg-[#040d1a]/85 backdrop-blur border border-white/10 px-4 py-3 rounded-md text-white min-w-[110px]">
-                  <div className="text-[9px] text-white/50 uppercase tracking-eyebrow mb-1">Vel ingresso</div>
+                  <div className="text-[9px] text-white/50 uppercase tracking-eyebrow mb-1">{t('footprint.velIn')}</div>
                   <div className="text-2xl font-mono tabular">
                     {(Number(activeManeuver.sog_in) || 0).toFixed(1)}
                     <span className="text-caption text-white/60 ml-1">kts</span>
@@ -758,7 +761,7 @@ export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresho
 
                 <div className={`bg-[#040d1a]/85 backdrop-blur border px-4 py-3 rounded-md min-w-[130px] ${activeStatus.border}`}>
                   <div className={`text-[9px] uppercase tracking-eyebrow mb-1 ${activeStatus.color}`}>
-                    Manovra {activeStatus.label}
+                    {t('footprint.maneuverWithStatus', { status: activeStatus.label })}
                   </div>
                   <div className={`text-3xl font-mono tabular leading-none ${activeStatus.color}`}>
                     {(Number(activeManeuver.sog_min) || 0).toFixed(1)}
@@ -767,7 +770,7 @@ export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresho
                 </div>
 
                 <div className="bg-[#040d1a]/85 backdrop-blur border border-white/10 px-4 py-3 rounded-md text-white min-w-[110px]">
-                  <div className="text-[9px] text-white/50 uppercase tracking-eyebrow mb-1">Vel uscita</div>
+                  <div className="text-[9px] text-white/50 uppercase tracking-eyebrow mb-1">{t('footprint.velOut')}</div>
                   <div className="text-2xl font-mono tabular">
                     {(Number(activeManeuver.sog_out) || 0).toFixed(1)}
                     <span className="text-caption text-white/60 ml-1">kts</span>
@@ -783,7 +786,7 @@ export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresho
                   <div className="flex flex-col items-end gap-4">
 
                     <div>
-                      <div className="text-[9px] text-white/50 uppercase tracking-eyebrow mb-1">Orario manovra</div>
+                      <div className="text-[9px] text-white/50 uppercase tracking-eyebrow mb-1">{t('footprint.maneuverTime')}</div>
                       <div className="text-lg font-mono tabular text-white">
                         {formatTime(activeManeuver.timestamp || renderData.turnPoint.time)}
                       </div>
@@ -793,7 +796,7 @@ export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresho
                       <>
                         <div className="w-full border-t border-white/10" />
                         <div>
-                          <div className="text-[9px] text-white/50 uppercase tracking-eyebrow mb-1">Lato precedente</div>
+                          <div className="text-[9px] text-white/50 uppercase tracking-eyebrow mb-1">{t('footprint.previousLeg')}</div>
                           <div className="text-lg font-mono tabular text-gold">
                             {activeManeuver.leg_distance_nm.toFixed(2)}
                             <span className="text-caption text-white/60 ml-1">NM</span>
@@ -804,7 +807,7 @@ export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresho
 
                     <div className="w-full border-t border-white/10" />
                     <div>
-                      <div className="text-[9px] text-white/50 uppercase tracking-eyebrow mb-1">Coordinate</div>
+                      <div className="text-[9px] text-white/50 uppercase tracking-eyebrow mb-1">{t('footprint.coordinates')}</div>
                       <div className="text-caption font-mono tabular text-white/60">
                         {renderData.turnPoint.lat.toFixed(5)}° N, {renderData.turnPoint.lon.toFixed(5)}° E
                       </div>
@@ -820,7 +823,7 @@ export default function ManeuverFootprint({ sessions, flyThreshold, onFlyThresho
           {/* Grafico SOG istantaneo */}
           <div className="border-t border-border bg-surface-1 px-6 py-3 shrink-0 relative">
             <div className="flex items-baseline justify-between mb-1">
-              <h4 className="eyebrow">Velocità istante-per-istante</h4>
+              <h4 className="eyebrow">{t('maneuvers.instantSpeed')}</h4>
               <span className="text-caption text-ink-muted font-mono tabular">−20s / +40s</span>
             </div>
             <ManeuverSpeedChart

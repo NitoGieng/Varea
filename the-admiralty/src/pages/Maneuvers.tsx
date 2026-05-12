@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import type { MutableRefObject } from 'react';
+import { useTranslation } from 'react-i18next';
 import ManeuverSpeedChart from '../components/charts/ManeuverSpeedChart';
 import FlyThresholdControl from '../components/FlyThresholdControl';
 import type { Maneuver, HighResPoint } from '../types/telemetry';
@@ -69,6 +70,7 @@ const ROWS_PER_PAGE = 50;
 const PAGINATION_THRESHOLD = 500;
 
 export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange, csvExportRef, isWindEstimated }: Props) {
+  const { t } = useTranslation();
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<'ALL' | 'Virata' | 'Strambata'>('ALL');
   const [resultFilter, setResultFilter] = useState<'ALL' | 'FLY' | 'TOUCH'>('ALL');
@@ -262,14 +264,14 @@ export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange
         color: 'rgb(var(--ink-3))',
       }}
     >
-      <div className="col-span-2">{isMulti ? 'Atleta · Info' : 'Info'}</div>
-      <div className="col-span-2">Manovra</div>
-      <div className="col-span-1 text-center" title="Velocità ingresso">V.in</div>
-      <div className="col-span-1 text-center" style={{ color: 'rgb(var(--gold))' }} title="Velocità minima">V.min</div>
-      <div className="col-span-1 text-center" title="Velocità uscita (+12s)">V.out</div>
-      <div className="col-span-1 text-center" title="Durata totale (Discesa + Recupero)">Durata</div>
-      <div className="col-span-3 text-center" title="Tempo per recuperare il 50% della V persa">TTR (50%)</div>
-      <div className="col-span-1 text-right">ΔV</div>
+      <div className="col-span-2">{isMulti ? t('maneuvers.athleteInfo') : t('maneuvers.info')}</div>
+      <div className="col-span-2">{t('maneuvers.maneuver')}</div>
+      <div className="col-span-1 text-center" title={t('maneuvers.tooltipVIn')}>{t('maneuvers.vIn')}</div>
+      <div className="col-span-1 text-center" style={{ color: 'rgb(var(--gold))' }} title={t('maneuvers.tooltipVMin')}>{t('maneuvers.vMin')}</div>
+      <div className="col-span-1 text-center" title={t('maneuvers.tooltipVOut')}>{t('maneuvers.vOut')}</div>
+      <div className="col-span-1 text-center" title={t('maneuvers.tooltipTtr')}>{t('maneuvers.duration')}</div>
+      <div className="col-span-3 text-center" title={t('maneuvers.tooltipTtr')}>{t('maneuvers.ttr')}</div>
+      <div className="col-span-1 text-right">{t('maneuvers.deltaV')}</div>
     </div>
   );
 
@@ -336,13 +338,13 @@ export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange
                 lineHeight: 1.1,
               }}
             >
-              {isTack ? 'Virata' : 'Strambata'}
+              {isTack ? t('maneuvers.tack') : t('maneuvers.gybe')}
             </span>
           </div>
           <span className={`text-[9px] uppercase tracking-eyebrow px-1.5 py-0.5 rounded-sm border ${
             isFly ? 'bg-sage/15 text-sage border-sage/30' : 'bg-amber/15 text-amber border-amber/30'
           }`}>
-            {isFly ? 'Fly' : 'Touch'}
+            {isFly ? t('maneuvers.fly') : t('maneuvers.touch')}
           </span>
         </div>
 
@@ -376,8 +378,8 @@ export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange
                 <span className="font-mono tabular text-body text-ink">{m.recovery_time_s}</span>
                 <span className="text-caption text-ink-muted ml-0.5">s</span>
               </div>
-              <span className="text-[9px] text-ink-muted uppercase tracking-eyebrow mt-0.5" title="Velocità target">
-                Target {m.ttr_target_sog}
+              <span className="text-[9px] text-ink-muted uppercase tracking-eyebrow mt-0.5" title={t('maneuvers.target', { value: m.ttr_target_sog })}>
+                {t('maneuvers.target', { value: m.ttr_target_sog })}
               </span>
             </>
           ) : (
@@ -419,7 +421,7 @@ export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange
                 color: 'rgb(var(--ink-3))',
               }}
             >
-              Catalogo manovre
+              {t('maneuvers.catalog')}
             </span>
             <div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
           </div>
@@ -434,7 +436,7 @@ export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange
                 margin: 0,
               }}
             >
-              Registro
+              {t('maneuvers.registry')}
             </h1>
             <span
               style={{
@@ -443,7 +445,7 @@ export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange
                 color: 'rgb(var(--ink-3))',
               }}
             >
-              v.in / v.min / v.out · TTR 50% · ΔV
+              {t('maneuvers.caption')}
             </span>
           </div>
         </header>
@@ -459,7 +461,7 @@ export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder={isMulti ? 'Cerca ID, orario o atleta…' : 'Cerca ID manovra (es. #4805) o orario…'}
+            placeholder={isMulti ? t('maneuvers.searchMulti') : t('maneuvers.searchSingle')}
             className="w-full bg-surface-1 border border-border rounded-md py-3 pl-12 pr-4 text-body text-ink placeholder:text-ink-muted focus:border-gold outline-none transition-colors duration-220"
           />
         </div>
@@ -470,7 +472,7 @@ export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange
 
             {isMulti && (
               <div className="flex items-center gap-2 relative">
-                <span className="eyebrow">Atleta</span>
+                <span className="eyebrow">{t('maneuvers.athlete')}</span>
                 <button
                   onClick={() => setIsAthleteDropdownOpen(!isAthleteDropdownOpen)}
                   className="bg-bg border border-border text-eyebrow uppercase tracking-eyebrow px-3 py-2 rounded-md flex items-center gap-2 text-ink hover:border-gold min-w-[160px] justify-between transition-colors duration-220"
@@ -480,7 +482,7 @@ export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange
                       <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: sessionById.get(athleteFilter)?.color }} />
                     )}
                     <span className="truncate">
-                      {athleteFilter === 'ALL' ? 'Tutti' : (sessionById.get(athleteFilter)?.label ?? '—')}
+                      {athleteFilter === 'ALL' ? t('maneuvers.all') : (sessionById.get(athleteFilter)?.label ?? '—')}
                     </span>
                   </span>
                   <svg className={`w-3 h-3 transform transition-transform duration-220 ${isAthleteDropdownOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
@@ -491,7 +493,7 @@ export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange
                       onClick={() => { setAthleteFilter('ALL'); setIsAthleteDropdownOpen(false); }}
                       className={`w-full text-left px-4 py-2 text-eyebrow uppercase tracking-eyebrow hover:bg-surface-2 transition-colors duration-220 ${athleteFilter === 'ALL' ? 'text-gold bg-surface-2' : 'text-ink-2'}`}
                     >
-                      Tutti gli atleti
+                      {t('maneuvers.allAthletes')}
                     </button>
                     {sessions.map(s => (
                       <button
@@ -509,12 +511,12 @@ export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange
             )}
 
             <div className="flex items-center gap-2 relative">
-              <span className="eyebrow">Tipo</span>
+              <span className="eyebrow">{t('maneuvers.type')}</span>
               <button
                 onClick={() => setIsTypeDropdownOpen(!isTypeDropdownOpen)}
                 className="bg-bg border border-border text-eyebrow uppercase tracking-eyebrow px-3 py-2 rounded-md flex items-center gap-2 text-ink hover:border-gold min-w-[140px] justify-between transition-colors duration-220"
               >
-                {typeFilter === 'ALL' ? 'Tutte' : typeFilter}
+                {typeFilter === 'ALL' ? t('maneuvers.allTypes') : (typeFilter === 'Virata' ? t('maneuvers.tack') : t('maneuvers.gybe'))}
                 <svg className={`w-3 h-3 transform transition-transform duration-220 ${isTypeDropdownOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
               </button>
               {isTypeDropdownOpen && (
@@ -525,7 +527,7 @@ export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange
                       onClick={() => { setTypeFilter(type); setIsTypeDropdownOpen(false); }}
                       className={`w-full text-left px-4 py-2 text-eyebrow uppercase tracking-eyebrow hover:bg-surface-2 transition-colors duration-220 ${typeFilter === type ? 'text-gold bg-surface-2' : 'text-ink-2'}`}
                     >
-                      {type === 'ALL' ? 'Tutte le manovre' : type}
+                      {type === 'ALL' ? t('maneuvers.allManeuvers') : (type === 'Virata' ? t('maneuvers.tack') : t('maneuvers.gybe'))}
                     </button>
                   ))}
                 </div>
@@ -533,26 +535,26 @@ export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange
             </div>
 
             <div className="flex items-center gap-2">
-              <span className="eyebrow">Risultato</span>
+              <span className="eyebrow">{t('maneuvers.result')}</span>
               <div className="flex bg-bg border border-border rounded-md overflow-hidden">
                 <button
                   onClick={() => setResultFilter('ALL')}
                   className={`text-eyebrow uppercase tracking-eyebrow px-3 py-2 transition-colors duration-220 ${
                     resultFilter === 'ALL' ? 'bg-ink text-bg' : 'text-ink-muted hover:text-ink'
                   }`}
-                >Tutti</button>
+                >{t('maneuvers.all')}</button>
                 <button
                   onClick={() => setResultFilter('FLY')}
                   className={`text-eyebrow uppercase tracking-eyebrow px-3 py-2 transition-colors duration-220 border-l border-border ${
                     resultFilter === 'FLY' ? 'bg-sage/20 text-sage' : 'text-ink-muted hover:text-ink'
                   }`}
-                >Fly</button>
+                >{t('maneuvers.fly')}</button>
                 <button
                   onClick={() => setResultFilter('TOUCH')}
                   className={`text-eyebrow uppercase tracking-eyebrow px-3 py-2 transition-colors duration-220 border-l border-border ${
                     resultFilter === 'TOUCH' ? 'bg-amber/20 text-amber' : 'text-ink-muted hover:text-ink'
                   }`}
-                >Touch</button>
+                >{t('maneuvers.touch')}</button>
               </div>
             </div>
 
@@ -563,9 +565,9 @@ export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange
 
         {filteredManeuvers.length === 0 ? (
           <div className="text-center py-20 bg-surface-1 border border-border rounded-lg">
-            <p className="font-serif italic text-ink-muted mb-2">Nessuna manovra trovata con questi filtri.</p>
+            <p className="font-serif italic text-ink-muted mb-2">{t('maneuvers.noResults')}</p>
             <button onClick={resetFilters} className="text-gold text-eyebrow uppercase tracking-eyebrow hover:underline">
-              Resetta filtri
+              {t('maneuvers.resetFilters')}
             </button>
           </div>
         ) : isPaginated ? (
@@ -584,9 +586,9 @@ export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange
               }}
             >
               <div className="text-caption text-ink-2">
-                Pagina <span className="font-mono tabular text-ink">{safePage}</span> di <span className="font-mono tabular">{totalPages}</span>
+                {t('maneuvers.page')} <span className="font-mono tabular text-ink">{safePage}</span> {t('maneuvers.of')} <span className="font-mono tabular">{totalPages}</span>
                 <span className="text-ink-muted ml-3 font-mono tabular">
-                  ({(safePage - 1) * ROWS_PER_PAGE + 1}–{Math.min(safePage * ROWS_PER_PAGE, filteredManeuvers.length)} di {filteredManeuvers.length})
+                  ({(safePage - 1) * ROWS_PER_PAGE + 1}–{Math.min(safePage * ROWS_PER_PAGE, filteredManeuvers.length)} {t('maneuvers.of')} {filteredManeuvers.length})
                 </span>
               </div>
               <div className="flex items-center gap-2">
@@ -594,12 +596,12 @@ export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange
                   onClick={() => setPage(Math.max(1, safePage - 1))}
                   disabled={safePage === 1}
                   className="text-eyebrow uppercase tracking-eyebrow px-3 py-1.5 rounded-md border border-border text-ink-2 hover:border-gold hover:text-ink transition-colors duration-220 disabled:opacity-40 disabled:cursor-not-allowed"
-                >← Prec</button>
+                >{t('maneuvers.prev')}</button>
                 <button
                   onClick={() => setPage(Math.min(totalPages, safePage + 1))}
                   disabled={safePage === totalPages}
                   className="text-eyebrow uppercase tracking-eyebrow px-3 py-1.5 rounded-md border border-border text-ink-2 hover:border-gold hover:text-ink transition-colors duration-220 disabled:opacity-40 disabled:cursor-not-allowed"
-                >Succ →</button>
+                >{t('maneuvers.next')}</button>
               </div>
             </div>
             {headerRow}
@@ -662,25 +664,25 @@ export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange
                     <div className="flex items-center gap-2">
                       <span
                         className="eyebrow bg-bg px-2 py-1 rounded-sm border border-border"
-                        title={`VMG media del leg (modulo, indipendente dall'andatura). ${
+                        title={`${t('maneuvers.vmgTooltipMain')} ${
                           typeof isWindEstimated === 'boolean'
                             ? (isWindEstimated
-                                ? 'Calcolata su vento stimato dal GPS.'
-                                : 'Calcolata su vento osservato da Stormglass.')
+                                ? t('maneuvers.vmgTooltipEstimated')
+                                : t('maneuvers.vmgTooltipObserved'))
                             : ''
                         }`.trim()}
                       >
-                        <span className="normal-case tracking-normal text-ink-muted">VMG</span>{' '}
+                        <span className="normal-case tracking-normal text-ink-muted">{t('maneuvers.vmg')}</span>{' '}
                         <span
                           className="font-mono tabular normal-case tracking-normal"
                           style={{ color: 'rgb(var(--gold))' }}
                         >
-                          {vmgAvg != null ? vmgAvg.toFixed(1) : 'n/d'}
+                          {vmgAvg != null ? vmgAvg.toFixed(1) : t('common.na')}
                         </span>
                         {vmgAvg != null && <span className="normal-case tracking-normal text-ink-muted"> kts</span>}
                       </span>
                       <span className="eyebrow bg-bg px-2 py-1 rounded-sm border border-border">
-                        <span className="font-mono tabular normal-case tracking-normal text-ink">{legManeuvers.length}</span> manovre
+                        <span className="font-mono tabular normal-case tracking-normal text-ink">{legManeuvers.length}</span> {t('maneuvers.maneuversCount', { count: legManeuvers.length }).replace(/^\d+\s*/, '')}
                       </span>
                     </div>
                   </button>
@@ -719,7 +721,7 @@ export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange
               <div>
                 <div className="flex items-center gap-2.5">
                   <div className={`w-2 h-2 rounded-full ${selectedManeuver.type === 'Virata' ? 'bg-gold' : 'bg-ink-2'}`} />
-                  <h3 className="font-serif italic text-h2 text-ink leading-none">{selectedManeuver.type}</h3>
+                  <h3 className="font-serif italic text-h2 text-ink leading-none">{selectedManeuver.type === 'Virata' ? t('maneuvers.tack') : t('maneuvers.gybe')}</h3>
                   <span className="text-caption font-mono tabular text-ink-muted">{selectedManeuver.maneuverId}</span>
                 </div>
                 <div className="eyebrow mt-2 flex items-center gap-2">
@@ -732,13 +734,13 @@ export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange
                   )}
                   <span className="font-mono tabular normal-case tracking-normal text-ink-2">{safeTime(selectedManeuver.timestamp)}</span>
                   <span className="text-ink-muted">·</span>
-                  <span>Velocità istante-per-istante</span>
+                  <span>{t('maneuvers.instantSpeed')}</span>
                 </div>
               </div>
               <button
                 onClick={() => setSelectedManeuver(null)}
                 className="text-ink-muted hover:text-ink transition-colors duration-220"
-                aria-label="Chiudi"
+                aria-label={t('maneuvers.closeAria')}
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />

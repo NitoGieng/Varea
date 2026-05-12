@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, ReferenceDot } from 'recharts';
 import type { HighResPoint } from '../types/telemetry';
 import { parseBackendTimestamp } from '../utils/time';
@@ -42,6 +43,7 @@ type AnyProps = any;
 // (regola react-hooks/static-components). Recharts inietta active/payload/label
 // via cloneElement; sessions arriva dall'elemento JSX inline.
 function CustomTooltip(props: AnyProps) {
+  const { t } = useTranslation();
   const { active, payload, label, sessions } = props;
   if (!active || !payload || payload.length === 0) return null;
   const rel = label as number;
@@ -58,10 +60,10 @@ function CustomTooltip(props: AnyProps) {
     >
       <p className="text-eyebrow uppercase tracking-eyebrow mb-2" style={{ color: COLOR_LINE }}>
         {rel === 0
-          ? 'IL MOMENTO DELLO SPARO'
+          ? t('start.gunshotMoment')
           : rel < 0
-            ? `${Math.abs(rel)}s allo start`
-            : `+${rel}s di gara`}
+            ? t('start.secondsToStart', { value: Math.abs(rel) })
+            : t('start.secondsOfRace', { value: rel })}
       </p>
       {visibleSessions.map((s) => {
         const sog = payload.find((p: AnyProps) => p.dataKey === `sog_${s.id}`)?.value;
@@ -135,6 +137,7 @@ function deriveDefaultStartTime(sessionStart: string | undefined): string {
 }
 
 export default function StartAnalysis({ sessions }: Props) {
+  const { t } = useTranslation();
   const primary = sessions[0];
   const isMulti = sessions.length > 1;
 
@@ -231,7 +234,7 @@ export default function StartAnalysis({ sessions }: Props) {
   }, [perSessionData]);
 
   const formatXAxis = (tickItem: number) => {
-    if (tickItem === 0) return 'START';
+    if (tickItem === 0) return t('start.startTick');
     return tickItem > 0 ? `+${tickItem}s` : `${tickItem}s`;
   };
 
@@ -258,15 +261,15 @@ export default function StartAnalysis({ sessions }: Props) {
                 color: 'rgb(var(--ink-3))',
               }}
             >
-              Analisi partenza
+              {t('start.title')}
             </span>
             <div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
           </div>
-          <h1 className="font-serif italic text-h2 text-ink leading-none">Sparo</h1>
+          <h1 className="font-serif italic text-h2 text-ink leading-none">{t('start.gunshot')}</h1>
         </header>
         <div className="rule-brass mb-8" />
         <div className="text-ink-muted text-caption italic">
-          Nessuna sessione visibile.
+          {t('start.noVisibleSession')}
         </div>
       </div>
     );
@@ -287,17 +290,16 @@ export default function StartAnalysis({ sessions }: Props) {
               color: 'rgb(var(--ink-3))',
             }}
           >
-            Analisi partenza
+            {t('start.title')}
           </span>
           <div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
         </div>
         <h1 className="font-serif italic text-h2 text-ink leading-none">Sparo</h1>
         <p className="text-caption text-ink-muted mt-3 max-w-2xl">
-          Finestra tattica di 2 minuti pre-start e 1 minuto post-start attorno al
-          momento dello sparo.
+          {t('start.tacticalWindow')}
           {isMulti && (
             <span className="text-gold ml-1">
-              Ghosting di {sessions.length} atleti su T=0 condiviso.
+              {t('start.ghosting', { count: sessions.length })}
             </span>
           )}
         </p>
@@ -348,7 +350,7 @@ export default function StartAnalysis({ sessions }: Props) {
               color: 'rgb(var(--ink-3))',
             }}
           >
-            Ora esatta del T=0 (lo sparo)
+            {t('start.exactTime')}
           </label>
         </div>
 
@@ -365,8 +367,8 @@ export default function StartAnalysis({ sessions }: Props) {
             }}
           >
             {isMulti
-              ? 'Tutti gli atleti vengono allineati a questo istante.'
-              : 'Inserisci l\'orario reale in cui il comitato ha dato il via.'}
+              ? t('start.alignedExplanation')
+              : t('start.fillExplanation')}
           </p>
         </div>
       </div>
@@ -381,13 +383,13 @@ export default function StartAnalysis({ sessions }: Props) {
               <div className="flex items-center gap-2 mb-3 pb-2 border-b border-border">
                 <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: session.color }} />
                 <span className="text-caption font-bold text-ink truncate">{session.label}</span>
-                {!hasData && <span className="text-[10px] text-ink-muted ml-auto italic">— fuori finestra</span>}
+                {!hasData && <span className="text-[10px] text-ink-muted ml-auto italic">{t('start.outsideWindow')}</span>}
               </div>
               {hasData && (
                 <div className="grid grid-cols-3 gap-2">
-                  <StartStat label="-15s" value={maxPreStart} variant="neutral" />
-                  <StartStat label="Crossing" value={speedAtZero} variant="gold" />
-                  <StartStat label="+15s" value={avgPostStart} variant="neutral" />
+                  <StartStat label={t('start.minus15')} value={maxPreStart} variant="neutral" />
+                  <StartStat label={t('start.crossing')} value={speedAtZero} variant="gold" />
+                  <StartStat label={t('start.plus15')} value={avgPostStart} variant="neutral" />
                 </div>
               )}
             </div>
@@ -426,7 +428,7 @@ export default function StartAnalysis({ sessions }: Props) {
                 strokeDasharray="3 3"
                 label={{
                   position: 'top',
-                  value: 'START · T0',
+                  value: t('start.startRefLine'),
                   fill: COLOR_LINE,
                   fontSize: 10,
                   fontFamily: 'JetBrains Mono, monospace',
@@ -468,8 +470,8 @@ export default function StartAnalysis({ sessions }: Props) {
             <svg className="w-10 h-10 mb-3 opacity-40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            <p className="font-serif italic text-body-lg">Nessun dato GPS in questo orario.</p>
-            <p className="text-caption mt-1">Usa la barra qui sopra per cercare il momento esatto della partenza.</p>
+            <p className="font-serif italic text-body-lg">{t('start.noGpsData')}</p>
+            <p className="text-caption mt-1">{t('start.useBarToFind')}</p>
           </div>
         )}
       </div>

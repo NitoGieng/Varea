@@ -36,6 +36,7 @@ interface DashboardProps {
 }
 
 export default function Dashboard({ initialFiles }: DashboardProps = {}) {
+  const { t, i18n } = useTranslation();
   // Stato multi-sessione. Un caricamento singolo produce un array di 1
   // elemento: il comportamento single-player resta identico.
   const [sessions, setSessions] = useState<SessionData[]>([]);
@@ -623,7 +624,7 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
               : s
           ));
         } catch (err) {
-          const msg = err instanceof Error ? err.message : 'Errore sconosciuto';
+          const msg = err instanceof Error ? err.message : t('errors.unknown');
           setSessions(prev => prev.map(s =>
             s.id === ph.id ? { ...s, status: 'error' as const, error: msg } : s
           ));
@@ -714,10 +715,12 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
         sessionStartIsoFull: telemetryData.session_info.start_time,
         fileName: telemetryData.session_info.file_name,
         coachAnnotations: filteredCoachAnnotations,
+        t,
+        locale: i18n.language === 'en' ? 'en-US' : 'it-IT',
       });
     } catch (err) {
       console.error('Export PDF fallito:', err);
-      window.alert('Generazione PDF fallita. Controlla la console per i dettagli.');
+      window.alert(t('errors.pdfGenerationFailed'));
     }
   };
 
@@ -738,24 +741,24 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
           {loadingCount > 0 ? (
             <>
               <p className="text-lg text-[#f5f1e6]/80 font-sans leading-relaxed mb-2 animate-pulse">
-                Analisi della sessione in corso…
+                {t('loading.analyzing')}
               </p>
               <p className="text-sm text-[#f5f1e6]/50 font-sans">
-                L'operazione potrebbe richiedere qualche secondo.
+                {t('loading.analyzingHint')}
               </p>
             </>
           ) : errorCount > 0 ? (
             <>
               <p className="text-lg text-[#f5f1e6]/80 font-sans leading-relaxed mb-2">
-                Analisi fallita.
+                {t('loading.failed')}
               </p>
               <p className="text-sm text-[#f5f1e6]/50 font-sans">
-                Verifica che il backend sia attivo e ricarica la pagina per riprovare.
+                {t('loading.failedHint')}
               </p>
             </>
           ) : (
             <p className="text-lg text-[#f5f1e6]/80 font-sans leading-relaxed">
-              Nessuna sessione attiva. Ricarica la pagina per iniziare una nuova analisi.
+              {t('loading.noSession')}
             </p>
           )}
         </div>
@@ -927,13 +930,13 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
               {/* HEADER SESSIONE — editoriale */}
               <header className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-8">
                 <div className="min-w-0">
-                  <p className="eyebrow mb-3">Sessione corrente</p>
+                  <p className="eyebrow mb-3">{t('overview.currentSession')}</p>
                   <h1 className="font-serif italic text-h1 text-ink leading-none truncate">
                     {sessionDisplayName}
                   </h1>
                 </div>
                 <div className="text-left md:text-right shrink-0">
-                  <p className="eyebrow mb-2">Vento reale</p>
+                  <p className="eyebrow mb-2">{t('overview.trueWind')}</p>
                   {/* Rosa dei venti accanto al readout numerico, allineati
                       verticalmente al centro. La rosa appare solo quando il
                       backend ha prodotto un TWD finito; il numero a destra
@@ -946,7 +949,7 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
                       <span className="font-mono tabular text-3xl text-gold leading-none">
                         {environment.computed_twd_deg}
                       </span>
-                      <span className="text-eyebrow text-ink-muted">°TWD</span>
+                      <span className="text-eyebrow text-ink-muted">{t('overview.twdSuffix')}</span>
                     </div>
                   </div>
                   {/* Pill fonte vento: amber per stima GPS, sage per Stormglass.
@@ -961,11 +964,11 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
                           : 'bg-sage/10 border-sage/50 text-sage'
                       }`}
                       title={environment.is_estimated
-                        ? 'Vento dedotto dalle traiettorie GPS: Stormglass non disponibile per questa sessione'
-                        : 'Vento da osservazione satellitare Stormglass'}
+                        ? t('overview.windEstimatedTitle')
+                        : t('overview.windObservedTitle')}
                     >
                       <span className={`w-1.5 h-1.5 rounded-full ${environment.is_estimated ? 'bg-amber' : 'bg-sage'}`} />
-                      {environment.is_estimated ? 'Stimato dal GPS' : 'Da Stormglass'}
+                      {environment.is_estimated ? t('overview.estimatedFromGps') : t('overview.fromStormglass')}
                     </span>
                     <span className="text-caption text-ink-muted font-mono tabular">
                       {durationH}h {String(durationM).padStart(2, '0')}m
@@ -984,7 +987,7 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
                         highlightEndMs={debouncedRange?.endMs}
                       />
                       <span className="text-caption text-ink-muted">
-                        Rotazione vento — sessione
+                        {t('overview.windRotation')}
                       </span>
                     </div>
                   )}
@@ -1010,12 +1013,9 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m0 3.75h.007M12 3.75 2.25 21h19.5L12 3.75Z" />
                   </svg>
                   <div className="text-body text-ink leading-snug">
-                    <strong className="font-semibold">Vento stimato dal GPS.</strong>{' '}
+                    <strong className="font-semibold">{t('overview.windEstimatedHeader')}</strong>{' '}
                     <span className="text-ink-2">
-                      Stormglass non era disponibile per questa sessione: la direzione
-                      del vento (TWD) e tutte le metriche derivate — andature, TWA, VMG —
-                      sono dedotte dall'euristica sui tuoi tracciati GPS, non da un'osservazione
-                      satellitare. Aspettati un margine di errore maggiore.
+                      {t('overview.windEstimatedDescription')}
                     </span>
                   </div>
                 </div>
@@ -1032,16 +1032,16 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
                   intera sessione) per non perdere quel riferimento. */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
                 <KpiHero
-                  label="Velocità di picco"
+                  label={t('overview.peakSpeed')}
                   value={segmentMetrics?.sogMax != null ? segmentMetrics.sogMax.toFixed(1) : '--'}
                   suffix="kts"
-                  sub={`Distanza totale ${session_info.distance_nm} NM`}
+                  sub={t('overview.totalDistance', { value: session_info.distance_nm })}
                 />
                 <KpiHero
-                  label="Velocità media"
+                  label={t('overview.avgSpeed')}
                   value={segmentMetrics?.sogAvg != null ? segmentMetrics.sogAvg.toFixed(1) : '--'}
                   suffix="kts"
-                  sub="Costanza alta"
+                  sub={t('overview.highConsistency')}
                 />
               </div>
 
@@ -1056,37 +1056,37 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
               {segmentMetrics && (
                 <section className="mb-10 space-y-6">
                   <div>
-                    <SectionRule>Manovre · volume</SectionRule>
+                    <SectionRule>{t('overview.maneuversVolume')}</SectionRule>
                     <div className="grid grid-cols-2 gap-3 max-w-md">
                       <VolumeCard
-                        label="Virate"
+                        label={t('overview.tacks')}
                         value={segmentMetrics.virate}
                         periodHours={segmentMetrics.periodHours}
                       />
                       <VolumeCard
-                        label="Strambate"
+                        label={t('overview.gybes')}
                         value={segmentMetrics.strambate}
                         periodHours={segmentMetrics.periodHours}
                       />
                     </div>
                   </div>
                   <div>
-                    <SectionRule>Velocità per andatura</SectionRule>
+                    <SectionRule>{t('overview.speedByPointOfSail')}</SectionRule>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <PerformanceCard
-                        label="Bolina"
+                        label={t('overview.upwind')}
                         value={segmentMetrics.bolina}
                         unit="kts"
                         pctTime={segmentMetrics.bolinaPct}
                       />
                       <PerformanceCard
-                        label="Traverso"
+                        label={t('overview.beamReach')}
                         value={segmentMetrics.traverso}
                         unit="kts"
                         pctTime={segmentMetrics.traversoPct}
                       />
                       <PerformanceCard
-                        label="Poppa"
+                        label={t('overview.downwind')}
                         value={segmentMetrics.poppa}
                         unit="kts"
                         pctTime={segmentMetrics.poppaPct}
@@ -1105,9 +1105,9 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
                 <section className="mb-10 space-y-6">
                   <div className="bg-surface-1 border border-border rounded-lg shadow-card overflow-hidden">
                     <div className="px-6 py-4 border-b border-border flex items-center justify-between">
-                      <h3 className="eyebrow">Velocità — sessione</h3>
+                      <h3 className="eyebrow">{t('overview.sessionSpeed')}</h3>
                       <span className="text-caption text-ink-muted italic">
-                        Clicca per aggiungere una nota
+                        {t('overview.clickToAddNote')}
                       </span>
                     </div>
                     <div ref={overviewChartContainerRef} className="relative px-4 py-4">
@@ -1189,21 +1189,21 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
                   angolare senza dover aprire documentazione. */}
               {segmentMetrics && (
                 <section className="mb-10">
-                  <SectionRule>Velocity Made Good</SectionRule>
+                  <SectionRule>{t('overview.vmg')}</SectionRule>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <VmgCard
-                      label="VMG Bolina"
+                      label={t('overview.vmgUpwind')}
                       value={segmentMetrics.vmgBolinaAvg}
                       peak={segmentMetrics.vmgBolinaMax}
                       sogAvg={segmentMetrics.sogBolinaAvgNum}
-                      sogLabel="Vel. media bolina"
+                      sogLabel={t('overview.avgUpwindSpeed')}
                     />
                     <VmgCard
-                      label="VMG Lasco"
+                      label={t('overview.vmgBroad')}
                       value={segmentMetrics.vmgLascoAvg}
                       peak={null}
                       sogAvg={segmentMetrics.sogLascoAvgNum}
-                      sogLabel="Vel. media lasco"
+                      sogLabel={t('overview.avgBroadSpeed')}
                     />
                   </div>
                 </section>
@@ -1213,7 +1213,7 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
               <section className="bg-surface-1 border border-border rounded-lg shadow-card overflow-hidden">
                 <div className="px-6 py-4 border-b border-border flex items-center justify-between">
                   <h3 className="eyebrow">
-                    Tracciato GPS{isFiltered ? ' · segmento filtrato' : ''}
+                    {t('overview.gpsTrack')}{isFiltered ? ` · ${t('overview.filteredSegment')}` : ''}
                   </h3>
                 </div>
                 <div ref={overviewMapContainerRef} className="relative h-[600px] w-full bg-bg">
@@ -1222,7 +1222,7 @@ export default function Dashboard({ initialFiles }: DashboardProps = {}) {
                       animato) per non sovrastimolare l'attesa breve. */}
                   <Suspense fallback={
                     <div className="absolute inset-0 flex items-center justify-center text-eyebrow uppercase tracking-eyebrow text-ink-muted">
-                      Caricamento mappa…
+                      {t('common.loadingMap')}
                     </div>
                   }>
                     {MapMemoized}
@@ -1391,7 +1391,7 @@ function Topbar({ viewLabelKey, onExportPDF, onExportJSON, onExportCSV, hasSessi
             whiteSpace: 'nowrap',
           }}
         >
-          Varea · Telemetry
+          {t('topbar.brand')}
         </span>
         <span style={{ color: 'rgb(var(--ink-4))' }}>/</span>
         <span
@@ -1408,8 +1408,8 @@ function Topbar({ viewLabelKey, onExportPDF, onExportJSON, onExportCSV, hasSessi
             <span style={telltaleBase} className="truncate">
               FIT · {sessionFileName}
             </span>
-            <span style={telltaleBase}>SAMPLE 1Hz</span>
-            <span style={telltaleBase}>GPS FIX 3D</span>
+            <span style={telltaleBase}>{t('topbar.telltaleSample')}</span>
+            <span style={telltaleBase}>{t('topbar.telltaleGpsFix')}</span>
           </div>
         )}
       </div>
@@ -1618,7 +1618,7 @@ function ExportMenu({ items, disabled }: ExportMenuProps) {
 // a chiamare changeLanguage e leggere i18n.resolvedLanguage per evidenziare
 // la lingua corrente.
 function LanguageSwitcher() {
-  const { i18n } = useTranslation();
+  const { i18n, t } = useTranslation();
   const current = (i18n.resolvedLanguage ?? i18n.language ?? 'it').slice(0, 2);
 
   const baseStyle: React.CSSProperties = {
@@ -1640,7 +1640,7 @@ function LanguageSwitcher() {
         onClick={() => {
           if (current !== lang) i18n.changeLanguage(lang);
         }}
-        aria-label={lang === 'it' ? 'Italiano' : 'English'}
+        aria-label={lang === 'it' ? t('common.italian') : t('common.english')}
         aria-pressed={active}
         style={{
           ...baseStyle,
@@ -1660,7 +1660,7 @@ function LanguageSwitcher() {
   };
 
   return (
-    <div className="flex items-center" aria-label="Selettore lingua">
+    <div className="flex items-center" aria-label={t('common.language')}>
       {renderButton('it')}
       <span
         aria-hidden
@@ -1701,6 +1701,7 @@ interface FilterBarProps {
 }
 
 function FilterBar(p: FilterBarProps) {
+  const { t } = useTranslation();
   return (
     // Sub-bar piatta sul colore di sfondo: nessun pannello distinto
     // dal bg pagina, solo il filo --line di separazione.
@@ -1710,8 +1711,8 @@ function FilterBar(p: FilterBarProps) {
     >
       <div className="max-w-[1500px] mx-auto flex flex-col xl:flex-row justify-between items-start xl:items-center gap-3">
         <div>
-          <p className="eyebrow">Filtro temporale</p>
-          <p className="text-caption text-ink-muted mt-0.5">Applicato a mappe, tabelle e grafici.</p>
+          <p className="eyebrow">{t('filters.temporal')}</p>
+          <p className="text-caption text-ink-muted mt-0.5">{t('filters.applied')}</p>
         </div>
         <div className="flex flex-col gap-2 items-end">
           <div className="inline-flex bg-bg border border-border rounded-md p-0.5">
@@ -1721,7 +1722,7 @@ function FilterBar(p: FilterBarProps) {
                 !p.useAbsoluteTime ? 'bg-surface-2 text-ink' : 'text-ink-muted'
               }`}
             >
-              Relativo
+              {t('filters.relative')}
             </button>
             <button
               onClick={() => p.setUseAbsoluteTime(true)}
@@ -1729,12 +1730,12 @@ function FilterBar(p: FilterBarProps) {
                 p.useAbsoluteTime ? 'bg-surface-2 text-ink' : 'text-ink-muted'
               }`}
             >
-              Orologio
+              {t('filters.clock')}
             </button>
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
-            <FilterField label="Da">
+            <FilterField label={t('filters.from')}>
               {!p.useAbsoluteTime ? (
                 <RelativeInput
                   value={p.displayStart}
@@ -1746,7 +1747,7 @@ function FilterBar(p: FilterBarProps) {
                 <ClockInput value={p.absStartDisplay} onChange={p.setStartAbsolute} />
               )}
             </FilterField>
-            <FilterField label="A">
+            <FilterField label={t('filters.to')}>
               {!p.useAbsoluteTime ? (
                 <RelativeInput
                   value={p.displayEnd}
@@ -1788,6 +1789,10 @@ function RelativeInput({
   maxSec: number;
   onChange: (totalSec: number) => void;
 }) {
+  const { t } = useTranslation();
+  const hoursAria = t('filters.hoursAria');
+  const minutesAria = t('filters.minutesAria');
+  const secondsAria = t('filters.secondsAria');
   // onChange emette sempre *totale in secondi*: i tre campi restano
   // indipendenti nella UI ma non possono produrre stati incoerenti perché
   // ricomponiamo il totale ad ogni tasto e il parent clampa agli estremi.
@@ -1816,7 +1821,7 @@ function RelativeInput({
               if (n !== null) emit(n, value.m, value.s);
             }}
             className="w-10 py-1 px-1 bg-transparent text-body text-ink outline-none text-center tabular"
-            aria-label="Ore"
+            aria-label={hoursAria}
           />
           <span className="text-ink-muted">:</span>
         </>
@@ -1831,7 +1836,7 @@ function RelativeInput({
           if (n !== null) emit(value.h, n, value.s);
         }}
         className="w-12 py-1 px-1 bg-transparent text-body text-ink outline-none text-center tabular"
-        aria-label="Minuti"
+        aria-label={minutesAria}
       />
       <span className="text-ink-muted">:</span>
       <input
@@ -1844,7 +1849,7 @@ function RelativeInput({
           if (n !== null) emit(value.h, value.m, n);
         }}
         className="w-12 py-1 px-1 bg-transparent text-body text-ink outline-none text-center tabular"
-        aria-label="Secondi"
+        aria-label={secondsAria}
       />
     </div>
   );
@@ -2099,6 +2104,7 @@ function VolumeCard({
   value: number;
   periodHours: number;
 }) {
+  const { t } = useTranslation();
   const showRate = periodHours >= 0.1 && value > 0;
   const rate = showRate ? value / periodHours : null;
   return (
@@ -2108,7 +2114,7 @@ function VolumeCard({
         <span style={statValueStyle}>{value}</span>
       </div>
       <p style={statMetaStyle}>
-        {rate != null ? `${rate.toFixed(0)}/h` : '\u00A0'}
+        {rate != null ? t('overview.ratePerHour', { value: rate.toFixed(0) }) : '\u00A0'}
       </p>
     </div>
   );
@@ -2132,6 +2138,7 @@ function PerformanceCard({
   unit: string;
   pctTime: number | null;
 }) {
+  const { t } = useTranslation();
   return (
     <div style={statCardStyle}>
       <span style={statLabelStyle}>{label}</span>
@@ -2140,7 +2147,7 @@ function PerformanceCard({
         <span style={statUnitStyle}>{unit}</span>
       </div>
       <p style={statMetaStyle}>
-        {pctTime != null ? `${pctTime.toFixed(0)}% del tempo` : '\u00A0'}
+        {pctTime != null ? t('overview.percentOfTime', { value: pctTime.toFixed(0) }) : '\u00A0'}
       </p>
     </div>
   );
@@ -2166,7 +2173,8 @@ function VmgCard({
   sogAvg: number | null;
   sogLabel: string;
 }) {
-  const display = value != null && Number.isFinite(value) ? value.toFixed(1) : 'n/d';
+  const { t } = useTranslation();
+  const display = value != null && Number.isFinite(value) ? value.toFixed(1) : t('common.na');
   const peakDisplay = peak != null && Number.isFinite(peak) ? peak.toFixed(1) : null;
   const sogDisplay = sogAvg != null && Number.isFinite(sogAvg) ? sogAvg.toFixed(1) : null;
   return (
@@ -2177,7 +2185,7 @@ function VmgCard({
         <span style={statUnitStyle}>kts</span>
       </div>
       <p style={statMetaStyle}>
-        {peakDisplay != null ? `picco: ${peakDisplay} kts` : '\u00A0'}
+        {peakDisplay != null ? t('overview.peakLabel', { value: peakDisplay }) : '\u00A0'}
       </p>
       {sogDisplay != null && value != null && Number.isFinite(value) ? (
         <p
@@ -2201,7 +2209,7 @@ function VmgCard({
             fontStyle: 'italic',
           }}
         >
-          Dati insufficienti per il confronto.
+          {t('overview.insufficientForComparison')}
         </p>
       )}
     </div>

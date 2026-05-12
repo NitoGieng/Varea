@@ -1,4 +1,5 @@
 import { motion } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
 
 // Onde animate sullo sfondo della landing: due strati speculari di path
 // curvi che ricordano la scia di una barca / il moto ondoso dell'acqua.
@@ -6,6 +7,7 @@ import { motion } from 'framer-motion';
 // CTA. Colori espliciti (avorio + brass) perche' la landing forza un
 // contesto "mare scuro" indipendente dal tema attivo.
 function FloatingPaths({ position }: { position: number }) {
+  const { t } = useTranslation();
   const paths = Array.from({ length: 36 }, (_, i) => ({
     id: i,
     d: `M-${380 - i * 5 * position} -${189 + i * 6}C-${
@@ -26,7 +28,7 @@ function FloatingPaths({ position }: { position: number }) {
         fill="none"
         preserveAspectRatio="xMidYMid slice"
       >
-        <title>Onde animate</title>
+        <title>{t('landing.backgroundTitle')}</title>
         {paths.map((path) => (
           <motion.path
             key={path.id}

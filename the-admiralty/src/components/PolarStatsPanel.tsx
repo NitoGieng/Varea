@@ -1,6 +1,8 @@
+import { useTranslation } from 'react-i18next';
 import type {
   PolarOptimum,
   PolarZoneStats,
+  PolarZoneId,
 } from '../utils/polar';
 
 interface Props {
@@ -18,23 +20,35 @@ const CYAN = 'rgb(var(--cyan))';
 const GOLD = 'rgb(var(--gold))';
 const INK_2 = 'rgb(var(--ink-2))';
 
+// Mappa zoneId → chiave i18n. Centralizza la traduzione cosi' tabelle e
+// barre usano la stessa stringa senza duplicare lo switch.
+const ZONE_LABEL_KEY: Record<PolarZoneId, string> = {
+  bolinaStretta: 'polar.zoneBolinaStretta',
+  bolina: 'polar.zoneBolina',
+  traverso: 'polar.zoneTraverso',
+  lasco: 'polar.zoneLasco',
+  poppa: 'polar.zonePoppa',
+};
+
 // Pannello laterale del Polar: tre blocchi verticali (VMG ottimali,
 // distribuzione tempo, tabella zone). Stile coerente con le card della
 // Panoramica: surface-1, border-border, eyebrow + valori in mono tabular.
 export default function PolarStatsPanel({ upwind, downwind, zones, totalPoints }: Props) {
+  const { t, i18n } = useTranslation();
+  const numberLocale = i18n.language === 'en' ? 'en-US' : 'it-IT';
   return (
     <div className="flex flex-col gap-4 p-4 overflow-y-auto h-full">
       {/* Blocco 1: VMG ottimali */}
       <section className="bg-surface-1 border border-border rounded-lg p-4">
-        <h4 className="eyebrow mb-3">VMG ottimale</h4>
+        <h4 className="eyebrow mb-3">{t('polarPanel.vmgOptimal')}</h4>
         <div className="grid grid-cols-2 gap-3">
           <OptimumBlock
-            label="Bolina"
+            label={t('polar.zoneBolina')}
             optimum={upwind}
             color={VIOLET}
           />
           <OptimumBlock
-            label="Lasco"
+            label={t('polar.zoneLasco')}
             optimum={downwind}
             color={GOLD}
           />
@@ -43,34 +57,34 @@ export default function PolarStatsPanel({ upwind, downwind, zones, totalPoints }
 
       {/* Blocco 2: Distribuzione angolare */}
       <section className="bg-surface-1 border border-border rounded-lg p-4">
-        <h4 className="eyebrow mb-3">Distribuzione tempo</h4>
+        <h4 className="eyebrow mb-3">{t('polarPanel.timeDistribution')}</h4>
         <div className="space-y-2">
           {zones.map(z => (
-            <ZoneBar key={z.label} zone={z} />
+            <ZoneBar key={z.zoneId} zone={z} />
           ))}
         </div>
         <div className="mt-3 pt-3 border-t border-border text-caption text-ink-muted font-mono tabular flex justify-between">
-          <span>Punti totali</span>
-          <span className="text-ink-2">{totalPoints.toLocaleString('it-IT')}</span>
+          <span>{t('polarPanel.totalPoints')}</span>
+          <span className="text-ink-2">{totalPoints.toLocaleString(numberLocale)}</span>
         </div>
       </section>
 
       {/* Blocco 3: Tabella SOG max/P90/N per zona */}
       <section className="bg-surface-1 border border-border rounded-lg p-4">
-        <h4 className="eyebrow mb-3">Velocità per zona</h4>
+        <h4 className="eyebrow mb-3">{t('polarPanel.speedByZone')}</h4>
         <table className="w-full text-caption font-mono tabular">
           <thead>
             <tr className="text-ink-muted text-eyebrow uppercase tracking-eyebrow border-b border-border">
-              <th className="text-left py-1.5 font-normal">Zona</th>
-              <th className="text-right py-1.5 font-normal">Max</th>
-              <th className="text-right py-1.5 font-normal">P90</th>
-              <th className="text-right py-1.5 font-normal">N</th>
+              <th className="text-left py-1.5 font-normal">{t('polarPanel.zone')}</th>
+              <th className="text-right py-1.5 font-normal">{t('polarPanel.max')}</th>
+              <th className="text-right py-1.5 font-normal">{t('polarPanel.p90')}</th>
+              <th className="text-right py-1.5 font-normal">{t('polarPanel.n')}</th>
             </tr>
           </thead>
           <tbody>
             {zones.map(z => (
-              <tr key={z.label} className="border-b border-border/40 last:border-0">
-                <td className="py-1.5 text-ink-2">{z.label}</td>
+              <tr key={z.zoneId} className="border-b border-border/40 last:border-0">
+                <td className="py-1.5 text-ink-2">{t(ZONE_LABEL_KEY[z.zoneId])}</td>
                 <td className="py-1.5 text-right text-ink">
                   {z.count > 0 ? z.sogMax.toFixed(1) : '—'}
                 </td>
@@ -78,7 +92,7 @@ export default function PolarStatsPanel({ upwind, downwind, zones, totalPoints }
                   {z.sogP90 != null ? z.sogP90.toFixed(1) : '—'}
                 </td>
                 <td className="py-1.5 text-right text-ink-muted">
-                  {z.count.toLocaleString('it-IT')}
+                  {z.count.toLocaleString(numberLocale)}
                 </td>
               </tr>
             ))}
@@ -98,6 +112,7 @@ function OptimumBlock({
   optimum: PolarOptimum | null;
   color: string;
 }) {
+  const { t } = useTranslation();
   if (!optimum) {
     return (
       <div
@@ -105,7 +120,7 @@ function OptimumBlock({
         style={{ borderLeft: `2px solid ${color}` }}
       >
         <div className="eyebrow mb-2">{label}</div>
-        <div className="text-caption text-ink-muted">Dati insufficienti</div>
+        <div className="text-caption text-ink-muted">{t('common.insufficientData')}</div>
       </div>
     );
   }
@@ -139,29 +154,30 @@ function OptimumBlock({
 // zona. Colori riflettono i token andatura: violet=bolina, cyan=traverso,
 // gold=lasco/poppa. Inline style perche' i token violet/cyan non sono
 // esposti come classi Tailwind (vivono solo come CSS var).
-const ZONE_BAR_COLOR: Record<string, string> = {
-  'Bolina stretta': `${VIOLET}`,
-  'Bolina': `${VIOLET}`,
-  'Traverso': `${CYAN}`,
-  'Lasco': `${GOLD}`,
-  'Poppa': `${GOLD}`,
+const ZONE_BAR_COLOR: Record<PolarZoneId, string> = {
+  bolinaStretta: VIOLET,
+  bolina: VIOLET,
+  traverso: CYAN,
+  lasco: GOLD,
+  poppa: GOLD,
 };
-const ZONE_BAR_OPACITY: Record<string, number> = {
-  'Bolina stretta': 0.85,
-  'Bolina': 0.55,
-  'Traverso': 0.7,
-  'Lasco': 0.7,
-  'Poppa': 0.5,
+const ZONE_BAR_OPACITY: Record<PolarZoneId, number> = {
+  bolinaStretta: 0.85,
+  bolina: 0.55,
+  traverso: 0.7,
+  lasco: 0.7,
+  poppa: 0.5,
 };
 
 function ZoneBar({ zone }: { zone: PolarZoneStats }) {
+  const { t } = useTranslation();
   const pct = zone.fraction * 100;
-  const baseColor = ZONE_BAR_COLOR[zone.label] ?? INK_2;
-  const opacity = ZONE_BAR_OPACITY[zone.label] ?? 0.6;
+  const baseColor = ZONE_BAR_COLOR[zone.zoneId] ?? INK_2;
+  const opacity = ZONE_BAR_OPACITY[zone.zoneId] ?? 0.6;
   return (
     <div>
       <div className="flex items-baseline justify-between text-caption font-mono tabular mb-1">
-        <span className="text-ink-2">{zone.label}</span>
+        <span className="text-ink-2">{t(ZONE_LABEL_KEY[zone.zoneId])}</span>
         <span className="text-ink">
           {pct.toFixed(1)}<span className="text-ink-muted ml-0.5">%</span>
         </span>

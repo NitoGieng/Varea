@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { CSSProperties } from 'react';
 
 interface Props {
@@ -52,6 +53,7 @@ export default function NoteEditPopup({
   onCancel,
   onDelete,
 }: Props) {
+  const { t } = useTranslation();
   const [text, setText] = useState(initialText);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -177,7 +179,7 @@ export default function NoteEditPopup({
     <div
       ref={wrapperRef}
       role="dialog"
-      aria-label={isEditing ? 'Modifica nota' : 'Nuova nota'}
+      aria-label={isEditing ? t('notes.editAria') : t('notes.newAria')}
       className="z-50 w-72 bg-surface-1 border border-gold/60 rounded-md shadow-card-md p-3"
       style={placedStyle}
       onClick={(e) => e.stopPropagation()}
@@ -188,7 +190,7 @@ export default function NoteEditPopup({
           {timestampDisplay}
         </span>
         <span className="eyebrow text-ink-muted">
-          {isEditing ? 'Modifica' : 'Nuova'}
+          {isEditing ? t('notes.edit') : t('notes.new')}
         </span>
       </div>
       <textarea
@@ -204,7 +206,7 @@ export default function NoteEditPopup({
             handleSave();
           }
         }}
-        placeholder="Scrivi un'osservazione…"
+        placeholder={t('notes.placeholder')}
         className="w-full h-20 bg-bg border border-border rounded p-2 text-body text-ink placeholder:text-ink-muted resize-none focus:outline-none focus:border-gold transition-colors duration-220"
       />
       <div className="flex items-center gap-2 mt-2">
@@ -212,20 +214,20 @@ export default function NoteEditPopup({
           onClick={handleSave}
           className="bg-gold text-[#0a1428] hover:bg-gold/85 px-3 py-1 rounded text-eyebrow uppercase tracking-eyebrow font-semibold transition-colors duration-220"
         >
-          Salva
+          {t('notes.save')}
         </button>
         <button
           onClick={onCancel}
           className="text-ink-muted hover:text-ink px-3 py-1 rounded text-eyebrow uppercase tracking-eyebrow transition-colors duration-220"
         >
-          Annulla
+          {t('notes.cancel')}
         </button>
         {isEditing && onDelete && (
           <button
             onClick={onDelete}
             className="ml-auto text-ink-muted hover:text-terra px-3 py-1 rounded text-eyebrow uppercase tracking-eyebrow transition-colors duration-220"
           >
-            Elimina
+            {t('notes.delete')}
           </button>
         )}
       </div>

@@ -4,12 +4,15 @@
 // (--gold/--gold-2/--ink-3/--ink-4) cosi' la rosa segue il tema
 // senza override locali.
 
+import { useTranslation } from 'react-i18next';
+
 interface Props {
   size?: number;
   dir: number;
 }
 
 export default function WindRose({ size = 88, dir }: Props) {
+  const { t } = useTranslation();
   const r = size / 2;
 
   // 36 tacche radiali, una ogni 10 gradi. Ogni 90 gradi (i % 9 === 0)
@@ -38,7 +41,7 @@ export default function WindRose({ size = 88, dir }: Props) {
       height={size}
       viewBox={`0 0 ${size} ${size}`}
       role="img"
-      aria-label={`Direzione vento ${Math.round(dir)}°`}
+      aria-label={t('windRose.aria', { deg: Math.round(dir) })}
     >
       {/* Cerchio esterno: bordo brass molto leggero + fill quasi nullo
           per dare profondita' senza far rumore. */}
