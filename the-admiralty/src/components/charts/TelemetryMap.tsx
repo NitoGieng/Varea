@@ -110,6 +110,19 @@ export default function TelemetryMap({
   onNoteMarkerClick,
 }: Props) {
   const { t } = useTranslation();
+  // Il backend emette andature in italiano ('Bolina', 'Traverso', 'Lasco/Poppa').
+  // Per il tooltip mappiamo al label tradotto via chiavi polarChart, cosi'
+  // l'EN vede 'Upwind/Reach/Downwind' senza toccare il pipeline analitico.
+  const ANDATURA_LABEL_KEY: Record<string, string> = {
+    Bolina: 'polarChart.groupBolina',
+    Traverso: 'polarChart.groupTraverso',
+    'Lasco/Poppa': 'polarChart.groupLascoPoppa',
+  };
+  const translateAndatura = (raw: string | null | undefined): string => {
+    if (!raw) return t('common.na');
+    const key = ANDATURA_LABEL_KEY[raw];
+    return key ? t(key) : t('polarChart.groupOther');
+  };
   const visibleLayers = layers.filter(l => l.points.length > 0);
 
   if (visibleLayers.length === 0) {
@@ -144,11 +157,10 @@ export default function TelemetryMap({
     const hoverTime = t('map.hoverTime');
     const hoverSpeed = t('map.hoverSpeed');
     const hoverSail = t('map.hoverSail');
-    const naDash = t('common.na');
     const hoverTexts = pts.map(p => {
       const clock = formatLocalClock(p.timestamp);
       const head = clock ? `${hoverTime}: ${clock}<br>` : '';
-      return `${head}${hoverSpeed}: ${p.sog_knots.toFixed(1)} kts<br>TWA: ${(p.twa ?? 0).toFixed(0)}°<br>${hoverSail}: ${p.andatura ?? naDash}`;
+      return `${head}${hoverSpeed}: ${p.sog_knots.toFixed(1)} kts<br>TWA: ${(p.twa ?? 0).toFixed(0)}°<br>${hoverSail}: ${translateAndatura(p.andatura)}`;
     });
 
     // Trace base (line + markers heatmap + START + FINE). Indici fissi
@@ -288,7 +300,7 @@ export default function TelemetryMap({
       const head = clock ? `${hoverTime}: ${clock}<br>` : '';
       return `${head}${l.label}<br>SOG: ${p.sog_knots.toFixed(1)} kts`
         + (p.twa != null ? `<br>TWA: ${p.twa.toFixed(0)}°` : '')
-        + (p.andatura ? `<br>${hoverSail}: ${p.andatura}` : '');
+        + (p.andatura ? `<br>${hoverSail}: ${translateAndatura(p.andatura)}` : '');
     });
     traces.push({
       type: 'scattermap', lat: lats, lon: lons, mode: 'lines',

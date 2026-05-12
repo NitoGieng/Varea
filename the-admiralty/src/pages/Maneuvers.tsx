@@ -383,7 +383,7 @@ export default function Maneuvers({ sessions, flyThreshold, onFlyThresholdChange
               </span>
             </>
           ) : (
-            <span className="text-terra bg-terra/10 px-1.5 py-0.5 rounded-sm text-[9px] uppercase tracking-eyebrow border border-terra/30" title="Mancato recupero">
+            <span className="text-terra bg-terra/10 px-1.5 py-0.5 rounded-sm text-[9px] uppercase tracking-eyebrow border border-terra/30" title={t('maneuvers.recoveryMissed')}>
               {m.recovery_time_s}
             </span>
           )}

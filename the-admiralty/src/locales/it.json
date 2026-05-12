@@ -167,7 +167,8 @@
     "tooltipVMin": "Velocità minima durante la manovra",
     "tooltipVOut": "Velocità in uscita dalla manovra",
     "tooltipTtr": "Tempo per recuperare il 50% della velocità persa",
-    "tooltipDeltaV": "Differenza tra velocità ingresso e uscita"
+    "tooltipDeltaV": "Differenza tra velocità ingresso e uscita",
+    "recoveryMissed": "Mancato recupero"
   },
   "start": {
     "title": "Analisi partenza",

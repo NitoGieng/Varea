@@ -167,7 +167,8 @@
     "tooltipVMin": "Lowest speed during the maneuver",
     "tooltipVOut": "Exit speed from the maneuver",
     "tooltipTtr": "Time to recover 50% of the speed lost",
-    "tooltipDeltaV": "Difference between entry and exit speed"
+    "tooltipDeltaV": "Difference between entry and exit speed",
+    "recoveryMissed": "Recovery missed"
   },
   "start": {
     "title": "Start analysis",
