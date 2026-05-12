@@ -1,9 +1,13 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 from pathlib import Path
 import tempfile
 import os
+import re
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -21,7 +25,32 @@ from main import _reconstruct_cog_from_gps, _build_dynamic_twd
 # api.py (= root backend), così dopo un upload l'atleta lo apre senza cercarlo.
 MANEUVERS_LOG_FILE = "maneuvers_log.txt"
 
+# Limite upload: una sessione 6h di FIT pesa tipicamente 3-8 MB, 50 MB
+# da margine x6 senza esporre il backend a OOM/disk-fill per upload abusivi.
+MAX_FILE_SIZE = 50 * 1024 * 1024
+# Chunk di lettura streaming: 1 MB e' un compromesso fra syscall overhead
+# e memoria istantanea in caso di abort mid-upload.
+CHUNK_SIZE = 1024 * 1024
+
+# Rate limiter per IP via slowapi. get_remote_address legge request.client.host:
+# dietro proxy (Render) serve avviare uvicorn con --proxy-headers e
+# --forwarded-allow-ips=* perche' client.host rifletta XFF al posto dell'IP LB.
+limiter = Limiter(key_func=get_remote_address)
+
 app = FastAPI(title="The Admiralty API")
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+def _safe_filename(filename: str | None) -> str:
+    """Sanifica il nome file: strip path components (path traversal) e tieni
+    solo alfanumerici + . _ -. Il filename arriva dal browser quindi puo' avere
+    separator UNIX o Windows; entrambi vengono rimossi."""
+    if not filename:
+        return "upload"
+    name = filename.replace('\\', '/').rsplit('/', 1)[-1]
+    name = re.sub(r'[^A-Za-z0-9._-]', '_', name)
+    return name[:255] or "upload"
 
 # CORS: in produzione (Render) settare ALLOWED_ORIGINS con la lista delle
 # origini consentite separate da virgola (es. "https://varea.vercel.app").
@@ -48,17 +77,39 @@ app.add_middleware(
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 @app.post("/api/analyze")
-async def analyze_fit_file(file: UploadFile = File(...)):
-    print(f"\n--- Ricevuto file: {file.filename} ---")
-    if not (file.filename.lower().endswith('.fit') or file.filename.lower().endswith('.csv')):
+@limiter.limit("10/minute")
+async def analyze_fit_file(request: Request, file: UploadFile = File(...)):
+    safe_name = _safe_filename(file.filename)
+    print(f"\n--- Ricevuto file: {safe_name} ---")
+    if not (safe_name.lower().endswith('.fit') or safe_name.lower().endswith('.csv')):
         raise HTTPException(status_code=400, detail="Il file deve essere .FIT o .CSV")
 
-    suffix = Path(file.filename).suffix
+    suffix = Path(safe_name).suffix
 
+    # Streaming write con cap a MAX_FILE_SIZE: il chunked read evita di caricare
+    # l'intero payload in RAM (UploadFile.read() senza argomenti farebbe spill su
+    # SpooledTemporaryFile ma senza freni). Se l'upload supera il cap chiudiamo
+    # il temp file (con __exit__) e lo rimuoviamo prima di sollevare 413.
+    oversize = False
+    total_bytes = 0
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
-        content = await file.read()
-        temp_file.write(content)
         temp_file_path = Path(temp_file.name)
+        while True:
+            chunk = await file.read(CHUNK_SIZE)
+            if not chunk:
+                break
+            total_bytes += len(chunk)
+            if total_bytes > MAX_FILE_SIZE:
+                oversize = True
+                break
+            temp_file.write(chunk)
+
+    if oversize:
+        os.unlink(temp_file_path)
+        raise HTTPException(
+            status_code=413,
+            detail=f"File troppo grande (max {MAX_FILE_SIZE // 1024 // 1024} MB)"
+        )
 
     try:
         # --- FASE 1: INGESTIONE ---
@@ -174,7 +225,7 @@ async def analyze_fit_file(file: UploadFile = File(...)):
         try:
             write_diagnostic_log(
                 Path(MANEUVERS_LOG_FILE),
-                file.filename,
+                safe_name,
                 df,
                 maneuvers_log,
                 df['twd_dynamic'],
@@ -253,7 +304,7 @@ async def analyze_fit_file(file: UploadFile = File(...)):
 
         report = {
             "session_info": {
-                "file_name": file.filename,
+                "file_name": safe_name,
                 "start_time": real_start_time,
                 "duration_seconds": duration_sec,
                 "distance_nm": round(distance_nm, 2),
